@@ -1,0 +1,32 @@
+.blazor-fast-spoiler {
+    position: relative;
+    display: inline;
+    cursor: pointer;
+    user-select: none;
+}
+
+.blazor-fast-spoiler.hidden {
+    color: transparent;
+    text-shadow: none;
+}
+
+.blazor-fast-spoiler.revealing {
+    cursor: pointer;
+    user-select: none;
+    animation: fade-in-text var(--reveal-duration, 300ms) ease-out forwards;
+}
+
+.blazor-fast-spoiler.revealed {
+    color: inherit;
+    cursor: default;
+    user-select: text;
+}
+
+@keyframes fade-in-text {
+    from {
+        color: transparent;
+    }
+    to {
+        color: inherit;
+    }
+}
