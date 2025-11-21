@@ -5,7 +5,9 @@ A modern Blazor component for creating spoiler text with beautiful particle effe
 ## Features
 
 - 🎨 **Beautiful Particle Effects** - Canvas-based particle animations that hide spoiler text
-- ⚡ **High Performance** - Optimized rendering with configurable FPS and position monitoring
+- ⚡ **High Performance** - Optimized C# particle management with minimal JavaScript interop
+- 🚀 **Dual Rendering Support** - Works seamlessly in both Blazor Server and WebAssembly modes
+- 💨 **Speed Optimized** - Uses `IJSInProcessObjectReference` for synchronous calls in WASM
 - 🎯 **Highly Configurable** - Extensive parameter set for fine-tuning particle behavior
 - ♿ **Accessible** - Full keyboard support and ARIA attributes
 - 🧪 **Well Tested** - Comprehensive bUnit test suite
@@ -123,10 +125,19 @@ Check out the [live demo](https://yourusername.github.io/BlazorFastSpoiler/) dep
 ## Technology Stack
 
 - .NET 10.0 (Latest LTS)
-- Blazor WebAssembly
+- Blazor WebAssembly & Blazor Server (dual rendering support)
+- C# particle management for optimal performance
 - Modern CSS (CSS Variables, Animations)
-- Canvas API (minimal JavaScript interop)
+- Canvas API (minimal JavaScript - only for rendering)
 - bUnit for testing
+
+## Performance Optimizations
+
+- **C# Particle Management**: All particle calculations run in C# for better performance
+- **In-Process JS Calls**: Uses `IJSInProcessObjectReference` for synchronous calls in WASM
+- **Minimal JavaScript**: JavaScript only handles canvas rendering operations
+- **Efficient Updates**: Particle state managed in memory with optimized update loops
+- **SSR Compatible**: Gracefully handles server-side rendering scenarios
 
 ## Contributing
 

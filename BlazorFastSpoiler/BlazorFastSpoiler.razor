@@ -19,9 +19,16 @@
 @code {
     private ElementReference containerRef;
     private IJSObjectReference? jsModule;
+    private IJSInProcessObjectReference? jsInProcessModule;
     private DotNetObjectReference<BlazorFastSpoiler>? objRef;
     private bool isInitialized;
     private bool isDisposed;
+    private readonly Dictionary<string, ParticleManager> particleManagers = new();
+    private readonly Dictionary<string, BoundingBox> boundingBoxes = new();
+    private CancellationTokenSource? animationCts;
+    private Task? animationTask;
+    private string? textColor;
+    private bool isWasm;
 
     /// <summary>
     /// Child content to be displayed as spoiler text
@@ -95,28 +102,45 @@
     {
         if (isInitialized || isDisposed) return;
 
+        // Check if we're in a browser environment (WASM or Server with SignalR)
+        if (!OperatingSystem.IsBrowser())
+        {
+            // Server-side rendering - skip JS initialization
+            return;
+        }
+
         try
         {
-            jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                "import", "./_content/BlazorFastSpoiler/js/blazorFastSpoiler.js");
+            // Try to get in-process reference for WASM performance
+            if (JSRuntime is IJSInProcessRuntime inProcessRuntime)
+            {
+                jsInProcessModule = await inProcessRuntime.InvokeAsync<IJSInProcessObjectReference>(
+                    "import", "./_content/BlazorFastSpoiler/js/blazorFastSpoiler.js");
+                isWasm = true;
+            }
+            else
+            {
+                jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/BlazorFastSpoiler/js/blazorFastSpoiler.js");
+                isWasm = false;
+            }
 
             objRef = DotNetObjectReference.Create(this);
 
-            await jsModule.InvokeVoidAsync("initialize", 
-                containerRef, 
-                objRef,
-                new
-                {
-                    scale = Scale,
-                    minVelocity = MinVelocity,
-                    maxVelocity = MaxVelocity,
-                    particleLifetime = ParticleLifetime,
-                    density = Density,
-                    revealDuration = RevealDuration,
-                    spawnStopDelay = SpawnStopDelay,
-                    monitorPosition = MonitorPosition,
-                    fps = Fps
-                });
+            var config = new ParticleConfig(
+                Scale,
+                MinVelocity,
+                MaxVelocity,
+                ParticleLifetime,
+                Density,
+                "#000000" // Will be updated from computed style
+            );
+
+            // Get bounding boxes and initialize particle managers in C#
+            await SetupParticleManagers(config);
+
+            // Start animation loop
+            StartAnimationLoop();
 
             isInitialized = true;
         }
@@ -127,6 +151,217 @@
         catch (JSDisconnectedException)
         {
             // Silently fail if JS context is disconnected
+        }
+    }
+
+    private async Task SetupParticleManagers(ParticleConfig config)
+    {
+        if (jsInProcessModule is null && jsModule is null) return;
+
+        // Get text color from computed style
+        textColor = await GetTextColorAsync();
+
+        var updatedConfig = config with { TextColor = textColor ?? "#000000" };
+
+        // Get bounding boxes from JavaScript
+        var boxes = await GetBoundingBoxesAsync();
+        
+        foreach (var (id, box) in boxes)
+        {
+            boundingBoxes[id] = box;
+            var manager = new ParticleManager(updatedConfig, box.Width, box.Height);
+            particleManagers[id] = manager;
+
+            // Create canvas in JavaScript
+            if (isWasm && jsInProcessModule is not null)
+            {
+                jsInProcessModule.InvokeVoid("createCanvas", id, box.X, box.Y, box.Width, box.Height);
+            }
+            else if (jsModule is not null)
+            {
+                await jsModule.InvokeVoidAsync("createCanvas", id, box.X, box.Y, box.Width, box.Height);
+            }
+        }
+
+        // Set up position monitoring if enabled
+        if (MonitorPosition)
+        {
+            _ = Task.Run(async () => await MonitorPositionsAsync(animationCts?.Token ?? CancellationToken.None));
+        }
+    }
+
+    private async Task MonitorPositionsAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested && !Revealed)
+        {
+            await Task.Delay(16, cancellationToken); // ~60fps
+
+            try
+            {
+                var boxes = await GetBoundingBoxesAsync();
+                foreach (var (id, newBox) in boxes)
+                {
+                    if (boundingBoxes.TryGetValue(id, out var oldBox))
+                    {
+                        if (Math.Abs(newBox.X - oldBox.X) > 0.5 || 
+                            Math.Abs(newBox.Y - oldBox.Y) > 0.5 ||
+                            Math.Abs(newBox.Width - oldBox.Width) > 0.5 ||
+                            Math.Abs(newBox.Height - oldBox.Height) > 0.5)
+                        {
+                            boundingBoxes[id] = newBox;
+                            if (isWasm && jsInProcessModule is not null)
+                            {
+                                jsInProcessModule.InvokeVoid("updateCanvasPosition", id, newBox.X, newBox.Y);
+                            }
+                            else if (jsModule is not null)
+                            {
+                                await jsModule.InvokeVoidAsync("updateCanvasPosition", id, newBox.X, newBox.Y);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (JSDisconnectedException)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task<string?> GetTextColorAsync()
+    {
+        try
+        {
+            if (isWasm && jsInProcessModule is not null)
+            {
+                return jsInProcessModule.Invoke<string>("getTextColor", containerRef);
+            }
+            else if (jsModule is not null)
+            {
+                return await jsModule.InvokeAsync<string>("getTextColor", containerRef);
+            }
+        }
+        catch
+        {
+            // Fallback to default
+        }
+        return "#000000";
+    }
+
+    private async Task<Dictionary<string, BoundingBox>> GetBoundingBoxesAsync()
+    {
+        try
+        {
+            if (isWasm && jsInProcessModule is not null)
+            {
+                var result = jsInProcessModule.Invoke<Dictionary<string, BoundingBox>>("getBoundingBoxes", containerRef);
+                return result;
+            }
+            else if (jsModule is not null)
+            {
+                var result = await jsModule.InvokeAsync<Dictionary<string, BoundingBox>>("getBoundingBoxes", containerRef);
+                return result ?? new Dictionary<string, BoundingBox>();
+            }
+        }
+        catch
+        {
+            // Return empty on error
+        }
+        return new Dictionary<string, BoundingBox>();
+    }
+
+    private void StartAnimationLoop()
+    {
+        animationCts?.Cancel();
+        animationCts = new CancellationTokenSource();
+        var token = animationCts.Token;
+
+        animationTask = AnimateAsync(token);
+    }
+
+    private async Task AnimateAsync(CancellationToken cancellationToken)
+    {
+        var frameInterval = 1000.0 / Fps;
+        var lastFrameTime = 0.0;
+
+        while (!cancellationToken.IsCancellationRequested && !Revealed)
+        {
+            var currentTime = Environment.TickCount64;
+            var elapsed = currentTime - lastFrameTime;
+
+            if (elapsed < frameInterval)
+            {
+                await Task.Delay((int)(frameInterval - elapsed), cancellationToken);
+                continue;
+            }
+
+            lastFrameTime = currentTime - (elapsed % frameInterval);
+
+            // Update all particle managers in C#
+            foreach (var (id, manager) in particleManagers)
+            {
+                manager.Update();
+            }
+
+            // Check if all particles are dead
+            var allDead = particleManagers.Values.All(m => !m.HasParticles());
+
+            if (Revealing && allDead)
+            {
+                Revealed = true;
+                Revealing = false;
+                await InvokeAsync(StateHasChanged);
+                break;
+            }
+
+            // Render particles to canvas via JavaScript
+            await RenderParticlesAsync();
+        }
+    }
+
+    private async Task RenderParticlesAsync()
+    {
+        if (Revealed || particleManagers.Count == 0) return;
+
+        try
+        {
+            foreach (var (id, manager) in particleManagers)
+            {
+                var particles = manager.GetParticles();
+                if (particles.Count == 0) continue;
+
+                var particleData = new object[particles.Count];
+                for (var i = 0; i < particles.Count; i++)
+                {
+                    var p = particles[i];
+                    particleData[i] = new
+                    {
+                        x = p.X,
+                        y = p.Y,
+                        width = p.Width,
+                        height = p.Height,
+                        alpha = p.Alpha
+                    };
+                }
+
+                if (isWasm && jsInProcessModule is not null)
+                {
+                    jsInProcessModule.InvokeVoid("drawParticles", id, particleData, textColor ?? "#000000");
+                }
+                else if (jsModule is not null)
+                {
+                    await jsModule.InvokeVoidAsync("drawParticles", id, particleData, textColor ?? "#000000");
+                }
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Component disposed, stop animation
+            Revealed = true;
         }
     }
 
@@ -143,12 +378,29 @@
 
     private async Task HandleClick()
     {
-        if (Revealed || Revealing || jsModule is null) return;
+        if (Revealed || Revealing) return;
 
         Revealing = true;
         StateHasChanged();
 
-        await jsModule.InvokeVoidAsync("reveal");
+        // Stop spawning after delay
+        if (SpawnStopDelay > 0)
+        {
+            _ = Task.Delay(SpawnStopDelay).ContinueWith(_ =>
+            {
+                foreach (var manager in particleManagers.Values)
+                {
+                    manager.StopSpawning();
+                }
+            });
+        }
+        else
+        {
+            foreach (var manager in particleManagers.Values)
+            {
+                manager.StopSpawning();
+            }
+        }
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -159,18 +411,37 @@
         }
     }
 
-    [JSInvokable]
-    public void OnRevealed()
-    {
-        Revealed = true;
-        Revealing = false;
-        _ = InvokeAsync(StateHasChanged);
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (isDisposed) return;
         isDisposed = true;
+
+        animationCts?.Cancel();
+        if (animationTask is not null)
+        {
+            try
+            {
+                await animationTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when cancelling
+            }
+        }
+        animationCts?.Dispose();
+
+        if (jsInProcessModule is not null)
+        {
+            try
+            {
+                jsInProcessModule.InvokeVoid("dispose");
+                jsInProcessModule.Dispose();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Ignore if JS context is disconnected
+            }
+        }
 
         if (jsModule is not null)
         {
