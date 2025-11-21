@@ -1,6 +1,6 @@
 # BlazorFastSpoiler
 
-A modern Blazor component for creating spoiler text with beautiful particle effects. Inspired by [spoilerjs](https://github.com/shajidhasan/spoilerjs), built with bleeding-edge .NET 9 features and modern CSS.
+A modern Blazor component for creating spoiler text with beautiful particle effects. Inspired by [spoilerjs](https://github.com/shajidhasan/spoilerjs), built with bleeding-edge .NET 10 features and modern CSS.
 
 ## Features
 
@@ -83,7 +83,7 @@ Install-Package BlazorFastSpoiler
 
 ### Prerequisites
 
-- .NET 9.0 SDK or later
+- .NET 10.0 SDK or later
 
 ### Building
 
@@ -122,7 +122,7 @@ Check out the [live demo](https://yourusername.github.io/BlazorFastSpoiler/) dep
 
 ## Technology Stack
 
-- .NET 9.0
+- .NET 10.0 (Latest LTS)
 - Blazor WebAssembly
 - Modern CSS (CSS Variables, Animations)
 - Canvas API (minimal JavaScript interop)
