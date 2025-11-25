@@ -97,31 +97,55 @@ internal sealed class ParticleManager
         for (var i = _particles.Count - 1; i >= 0; i--)
         {
             var p = _particles[i];
-            p.Life--;
-            p.Alpha = Math.Min(p.MaxAlpha, (p.Life / p.MaxLife) * p.MaxAlpha);
 
-            if (p.Life <= 0)
-            {
-                _particles.RemoveAt(i);
-                continue;
-            }
-
+            // Update position first
             p.X += p.Vx;
             p.Y += p.Vy;
 
-            // Bounce off edges
-            if (p.X <= 0 || p.X + p.Width >= _width) p.Vx *= -1;
-            if (p.Y <= 0 || p.Y + p.Height >= _height) p.Vy *= -1;
+            // Update lifetime
+            p.Life--;
 
-            p.X = Math.Max(0, Math.Min(_width - p.Width, p.X));
-            p.Y = Math.Max(0, Math.Min(_height - p.Height, p.Y));
+            // Calculate alpha based on life stage for smooth fade in/out
+            // 20% of lifetime for fade in, 20% for fade out
+            var fadeInDuration = p.MaxLife * 0.2;
+            var fadeOutDuration = p.MaxLife * 0.2;
+
+            if (p.Life > p.MaxLife - fadeInDuration)
+            {
+                // Fade in
+                var fadeProgress = (p.MaxLife - p.Life) / fadeInDuration;
+                p.Alpha = fadeProgress * p.MaxAlpha;
+            }
+            else if (p.Life < fadeOutDuration)
+            {
+                // Fade out
+                var fadeProgress = p.Life / fadeOutDuration;
+                p.Alpha = fadeProgress * p.MaxAlpha;
+            }
+            else
+            {
+                // Full opacity (respecting maxAlpha)
+                p.Alpha = p.MaxAlpha;
+            }
+
+            // Remove particles that are dead or way out of bounds
+            var margin = Math.Max(_width, _height) * 0.5;
+            var outOfBounds =
+                p.X < -margin ||
+                p.X > _width + margin ||
+                p.Y < -margin ||
+                p.Y > _height + margin;
+
+            if (p.Life <= 0 || outOfBounds)
+            {
+                _particles.RemoveAt(i);
+            }
         }
 
-        // Spawn new particles if enabled
-        if (_spawningEnabled && _particles.Count < targetCount)
+        // Spawn new particles to maintain density (only if spawning is enabled)
+        if (_spawningEnabled)
         {
-            var spawnCount = Math.Min(2, targetCount - _particles.Count);
-            for (var i = 0; i < spawnCount; i++)
+            while (_particles.Count < targetCount)
             {
                 _particles.Add(CreateParticle());
             }

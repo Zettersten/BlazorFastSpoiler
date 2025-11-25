@@ -139,6 +139,9 @@
             // Get bounding boxes and initialize particle managers in C#
             await SetupParticleManagers(config);
 
+            // Set up scroll/resize handlers for position updates
+            await SetupScrollResizeHandlersAsync();
+
             // Start animation loop
             StartAnimationLoop();
 
@@ -175,19 +178,76 @@
             // Create canvas in JavaScript
             if (isWasm && jsInProcessModule is not null)
             {
-                jsInProcessModule.InvokeVoid("createCanvas", id, box.X, box.Y, box.Width, box.Height);
+                jsInProcessModule.InvokeVoid("createCanvas", id, box.X, box.Y, box.Width, box.Height, containerRef);
             }
             else if (jsModule is not null)
             {
-                await jsModule.InvokeVoidAsync("createCanvas", id, box.X, box.Y, box.Width, box.Height);
+                await jsModule.InvokeVoidAsync("createCanvas", id, box.X, box.Y, box.Width, box.Height, containerRef);
             }
         }
 
-        // Set up position monitoring if enabled
+        // Set up continuous position monitoring if enabled (for transforms/animations)
         if (MonitorPosition)
         {
             _ = Task.Run(async () => await MonitorPositionsAsync(animationCts?.Token ?? CancellationToken.None));
         }
+    }
+
+    private async Task SetupScrollResizeHandlersAsync()
+    {
+        if (jsInProcessModule is null && jsModule is null) return;
+
+        try
+        {
+            // Set up scroll/resize handlers in JavaScript
+            if (isWasm && jsInProcessModule is not null)
+            {
+                jsInProcessModule.InvokeVoid("setupScrollResizeHandlers", containerRef, objRef);
+            }
+            else if (jsModule is not null)
+            {
+                await jsModule.InvokeVoidAsync("setupScrollResizeHandlers", containerRef, objRef);
+            }
+        }
+        catch
+        {
+            // Fallback: handle in C# if JS interop fails
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleSizeChange()
+    {
+        if (Revealed || isDisposed) return;
+
+        // Debounce size changes
+        await Task.Delay(50);
+        
+        if (isDisposed || Revealed) return;
+
+        // Clean up old canvases and particle managers
+        particleManagers.Clear();
+        boundingBoxes.Clear();
+        
+        if (isWasm && jsInProcessModule is not null)
+        {
+            jsInProcessModule.InvokeVoid("dispose", containerRef);
+        }
+        else if (jsModule is not null)
+        {
+            await jsModule.InvokeVoidAsync("dispose", containerRef);
+        }
+
+        var config = new ParticleConfig(
+            Scale,
+            MinVelocity,
+            MaxVelocity,
+            ParticleLifetime,
+            Density,
+            textColor ?? "#000000"
+        );
+
+        await SetupParticleManagers(config);
     }
 
     private async Task MonitorPositionsAsync(CancellationToken cancellationToken)
@@ -314,6 +374,17 @@
             {
                 Revealed = true;
                 Revealing = false;
+                
+                // Clean up canvases when all particles are gone
+                if (isWasm && jsInProcessModule is not null)
+                {
+                    jsInProcessModule.InvokeVoid("dispose", containerRef);
+                }
+                else if (jsModule is not null)
+                {
+                    await jsModule.InvokeVoidAsync("dispose", containerRef);
+                }
+                
                 await InvokeAsync(StateHasChanged);
                 break;
             }
@@ -434,7 +505,7 @@
         {
             try
             {
-                jsInProcessModule.InvokeVoid("dispose");
+                jsInProcessModule.InvokeVoid("dispose", containerRef);
                 jsInProcessModule.Dispose();
             }
             catch (JSDisconnectedException)
@@ -447,7 +518,7 @@
         {
             try
             {
-                await jsModule.InvokeVoidAsync("dispose");
+                await jsModule.InvokeVoidAsync("dispose", containerRef);
                 await jsModule.DisposeAsync();
             }
             catch (JSDisconnectedException)
