@@ -3,6 +3,7 @@
     display: inline;
     cursor: pointer;
     user-select: none;
+    overflow: visible; /* Allow particles to animate outside bounds */
 }
 
 .blazor-fast-spoiler.hidden {

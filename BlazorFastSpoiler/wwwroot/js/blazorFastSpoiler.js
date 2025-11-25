@@ -7,6 +7,8 @@ const elementRefMap = new Map(); // Map canvas IDs to element references for pos
 const elementCanvasIdsMap = new Map(); // Map elementRef to set of canvas IDs for cleanup
 
 export function createCanvas(id, x, y, width, height, elementRef) {
+    if (!elementRef) return;
+    
     const canvas = document.createElement('canvas');
     const dpr = window.devicePixelRatio || 1;
     
@@ -15,12 +17,14 @@ export function createCanvas(id, x, y, width, height, elementRef) {
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.style.position = 'absolute';
-    canvas.style.left = `${x}px`;
+    canvas.style.left = `${x}px`; // x and y are already relative to container
     canvas.style.top = `${y}px`;
     canvas.style.pointerEvents = 'none';
     canvas.style.zIndex = '1';
+    canvas.setAttribute('data-canvas-id', id);
     
-    document.body.appendChild(canvas);
+    // Append to container element, not body
+    elementRef.appendChild(canvas);
     
     const ctx = canvas.getContext('2d', { alpha: true });
     if (ctx) {
@@ -77,6 +81,7 @@ export function getTextColor(element) {
 export function getBoundingBoxes(element) {
     const boxes = {};
     const slotNodes = Array.from(element.childNodes);
+    const containerRect = element.getBoundingClientRect();
     const scrollX = window.scrollX ?? window.pageXOffset;
     const scrollY = window.scrollY ?? window.pageYOffset;
     let index = 0;
@@ -84,6 +89,11 @@ export function getBoundingBoxes(element) {
     const range = document.createRange();
 
     for (const node of slotNodes) {
+        // Skip canvas elements
+        if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') {
+            continue;
+        }
+        
         if (node.nodeType === Node.TEXT_NODE) {
             range.selectNodeContents(node);
             const rects = range.getClientRects();
@@ -91,9 +101,13 @@ export function getBoundingBoxes(element) {
             for (let i = 0; i < rects.length; i++) {
                 const rect = rects[i];
                 if (rect.width > 0 && rect.height > 0) {
+                    // Calculate position relative to container
+                    const relativeX = rect.left - containerRect.left;
+                    const relativeY = rect.top - containerRect.top;
+                    
                     boxes[`box_${index}`] = {
-                        x: rect.left + scrollX,
-                        y: rect.top + scrollY,
+                        x: relativeX,
+                        y: relativeY,
                         width: rect.width,
                         height: rect.height
                     };
@@ -106,9 +120,13 @@ export function getBoundingBoxes(element) {
             for (let i = 0; i < rects.length; i++) {
                 const rect = rects[i];
                 if (rect.width > 0 && rect.height > 0) {
+                    // Calculate position relative to container
+                    const relativeX = rect.left - containerRect.left;
+                    const relativeY = rect.top - containerRect.top;
+                    
                     boxes[`box_${index}`] = {
-                        x: rect.left + scrollX,
-                        y: rect.top + scrollY,
+                        x: relativeX,
+                        y: relativeY,
                         width: rect.width,
                         height: rect.height
                     };
@@ -123,7 +141,9 @@ export function getBoundingBoxes(element) {
 
 export function updateCanvasPosition(id, x, y) {
     const canvas = canvasMap.get(id);
-    if (canvas) {
+    const elementRef = elementRefMap.get(id);
+    if (canvas && elementRef) {
+        // Position is already relative to container, so use directly
         canvas.style.left = `${x}px`;
         canvas.style.top = `${y}px`;
     }
@@ -137,14 +157,18 @@ export function setupScrollResizeHandlers(elementRef, dotNetRef) {
     let lastKnownHeight = 0;
 
     const updateCanvasPositions = () => {
-        const scrollX = window.scrollX ?? window.pageXOffset;
-        const scrollY = window.scrollY ?? window.pageYOffset;
+        const containerRect = elementRef.getBoundingClientRect();
         let canvasIndex = 0;
 
         const range = document.createRange();
         const slotNodes = Array.from(elementRef.childNodes);
 
         for (const node of slotNodes) {
+            // Skip canvas elements
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') {
+                continue;
+            }
+            
             if (node.nodeType === Node.TEXT_NODE) {
                 range.selectNodeContents(node);
                 const rects = range.getClientRects();
@@ -155,8 +179,9 @@ export function setupScrollResizeHandlers(elementRef, dotNetRef) {
                         const id = `box_${canvasIndex}`;
                         const canvas = canvasMap.get(id);
                         if (canvas) {
-                            const newLeft = rect.left + scrollX;
-                            const newTop = rect.top + scrollY;
+                            // Calculate relative position
+                            const newLeft = rect.left - containerRect.left;
+                            const newTop = rect.top - containerRect.top;
                             const currentLeft = parseFloat(canvas.style.left) || 0;
                             const currentTop = parseFloat(canvas.style.top) || 0;
 
@@ -177,8 +202,9 @@ export function setupScrollResizeHandlers(elementRef, dotNetRef) {
                         const id = `box_${canvasIndex}`;
                         const canvas = canvasMap.get(id);
                         if (canvas) {
-                            const newLeft = rect.left + scrollX;
-                            const newTop = rect.top + scrollY;
+                            // Calculate relative position
+                            const newLeft = rect.left - containerRect.left;
+                            const newTop = rect.top - containerRect.top;
                             const currentLeft = parseFloat(canvas.style.left) || 0;
                             const currentTop = parseFloat(canvas.style.top) || 0;
 
@@ -269,15 +295,18 @@ export function setupPositionMonitoring(elementRef, dotNetRef) {
     let lastKnownHeight = 0;
 
     const updateCanvasPositions = () => {
-        const boxes = getBoundingBoxes(elementRef);
-        const scrollX = window.scrollX ?? window.pageXOffset;
-        const scrollY = window.scrollY ?? window.pageYOffset;
+        const containerRect = elementRef.getBoundingClientRect();
         let canvasIndex = 0;
 
         const range = document.createRange();
         const slotNodes = Array.from(elementRef.childNodes);
 
         for (const node of slotNodes) {
+            // Skip canvas elements
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') {
+                continue;
+            }
+            
             if (node.nodeType === Node.TEXT_NODE) {
                 range.selectNodeContents(node);
                 const rects = range.getClientRects();
@@ -288,8 +317,9 @@ export function setupPositionMonitoring(elementRef, dotNetRef) {
                         const id = `box_${canvasIndex}`;
                         const canvas = canvasMap.get(id);
                         if (canvas) {
-                            const newLeft = rect.left + scrollX;
-                            const newTop = rect.top + scrollY;
+                            // Calculate relative position
+                            const newLeft = rect.left - containerRect.left;
+                            const newTop = rect.top - containerRect.top;
                             canvas.style.left = `${newLeft}px`;
                             canvas.style.top = `${newTop}px`;
                         }
@@ -305,8 +335,9 @@ export function setupPositionMonitoring(elementRef, dotNetRef) {
                         const id = `box_${canvasIndex}`;
                         const canvas = canvasMap.get(id);
                         if (canvas) {
-                            const newLeft = rect.left + scrollX;
-                            const newTop = rect.top + scrollY;
+                            // Calculate relative position
+                            const newLeft = rect.left - containerRect.left;
+                            const newTop = rect.top - containerRect.top;
                             canvas.style.left = `${newLeft}px`;
                             canvas.style.top = `${newTop}px`;
                         }

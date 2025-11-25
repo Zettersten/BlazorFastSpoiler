@@ -29,6 +29,7 @@
     private Task? animationTask;
     private string? textColor;
     private bool isWasm;
+    private bool revealInitiated;
 
     /// <summary>
     /// Child content to be displayed as spoiler text
@@ -362,18 +363,50 @@
             lastFrameTime = currentTime - (elapsed % frameInterval);
 
             // Update all particle managers in C#
-            foreach (var (id, manager) in particleManagers)
+            // Create a snapshot to avoid issues if dictionary is modified
+            var managersSnapshot = particleManagers.Values.ToList();
+            foreach (var manager in managersSnapshot)
             {
+                if (isDisposed) break;
                 manager.Update();
             }
 
             // Check if all particles are dead
-            var allDead = particleManagers.Values.All(m => !m.HasParticles());
+            var allDead = managersSnapshot.All(m => !m.HasParticles());
 
+            // If reveal was initiated and all particles are gone, start text fade-in
+            if (revealInitiated && allDead && !Revealing && !Revealed)
+            {
+                Revealing = true;
+                await InvokeAsync(StateHasChanged);
+                
+                // Wait for reveal animation duration before marking as revealed
+                await Task.Delay(RevealDuration, cancellationToken);
+                
+                Revealed = true;
+                Revealing = false;
+                revealInitiated = false;
+                
+                // Clean up canvases when all particles are gone
+                if (isWasm && jsInProcessModule is not null)
+                {
+                    jsInProcessModule.InvokeVoid("dispose", containerRef);
+                }
+                else if (jsModule is not null)
+                {
+                    await jsModule.InvokeVoidAsync("dispose", containerRef);
+                }
+                
+                await InvokeAsync(StateHasChanged);
+                break;
+            }
+            
+            // If we're already revealing and all particles are gone, mark as revealed
             if (Revealing && allDead)
             {
                 Revealed = true;
                 Revealing = false;
+                revealInitiated = false;
                 
                 // Clean up canvases when all particles are gone
                 if (isWasm && jsInProcessModule is not null)
@@ -396,12 +429,17 @@
 
     private async Task RenderParticlesAsync()
     {
-        if (Revealed || particleManagers.Count == 0) return;
+        if (Revealed || isDisposed || particleManagers.Count == 0) return;
 
         try
         {
-            foreach (var (id, manager) in particleManagers)
+            // Create a snapshot of the dictionary to avoid issues if it's modified during iteration
+            var managersSnapshot = particleManagers.ToList();
+            
+            foreach (var (id, manager) in managersSnapshot)
             {
+                if (isDisposed) return; // Check again inside loop
+                
                 var particles = manager.GetParticles();
                 if (particles.Count == 0) continue;
 
@@ -434,6 +472,10 @@
             // Component disposed, stop animation
             Revealed = true;
         }
+        catch (OperationCanceledException)
+        {
+            // Animation cancelled, expected
+        }
     }
 
     private string GetCssClass() => Revealed switch
@@ -449,28 +491,16 @@
 
     private async Task HandleClick()
     {
-        if (Revealed || Revealing) return;
+        if (Revealed || Revealing || revealInitiated) return;
 
-        Revealing = true;
-        StateHasChanged();
+        revealInitiated = true;
 
-        // Stop spawning after delay
-        if (SpawnStopDelay > 0)
+        // Start reveal animation - particles will animate outward
+        // Create snapshot for thread safety
+        var managersSnapshot = particleManagers.Values.ToList();
+        foreach (var manager in managersSnapshot)
         {
-            _ = Task.Delay(SpawnStopDelay).ContinueWith(_ =>
-            {
-                foreach (var manager in particleManagers.Values)
-                {
-                    manager.StopSpawning();
-                }
-            });
-        }
-        else
-        {
-            foreach (var manager in particleManagers.Values)
-            {
-                manager.StopSpawning();
-            }
+            manager.StartReveal();
         }
     }
 
