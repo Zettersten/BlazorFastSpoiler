@@ -33,7 +33,7 @@ jobs:
         run: dotnet build --no-restore --configuration Release
       
       - name: Publish Blazor WebAssembly
-        run: dotnet publish BlazorFastSpoiler.Demo/BlazorFastSpoiler.Demo.csproj --configuration Release --output ./publish
+        run: dotnet publish BlazorFastSpoiler.Demo/BlazorFastSpoiler.Demo.csproj --configuration Release --output ./publish -p:BaseHref="/BlazorFastSpoiler/"
       
       - name: Setup Pages
         uses: actions/configure-pages@v4
