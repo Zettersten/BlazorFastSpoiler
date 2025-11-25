@@ -144,6 +144,9 @@
             // Set up scroll/resize handlers for position updates
             await SetupScrollResizeHandlersAsync();
 
+            // Render initial particles immediately before starting animation loop
+            await RenderParticlesAsync();
+
             // Start animation loop
             StartAnimationLoop();
 
@@ -440,6 +443,21 @@
             // If reveal was initiated and all particles are gone, start text fade-in
             if (revealInitiated && allDead && !Revealing && !Revealed)
             {
+                // Small delay to ensure particles have fully animated away
+                await Task.Delay(50, cancellationToken);
+                
+                if (isDisposed) break;
+                
+                // Clean up canvases before starting text fade-in
+                if (isWasm && jsInProcessModule is not null)
+                {
+                    jsInProcessModule.InvokeVoid("dispose", containerRef);
+                }
+                else if (jsModule is not null)
+                {
+                    await jsModule.InvokeVoidAsync("dispose", containerRef);
+                }
+                
                 Revealing = true;
                 revealInitiated = false; // Clear flag immediately to prevent duplicate processing
                 await InvokeAsync(StateHasChanged);
@@ -452,7 +470,14 @@
                 Revealed = true;
                 Revealing = false;
                 
-                // Clean up canvases when all particles are gone
+                await InvokeAsync(StateHasChanged);
+                break;
+            }
+            
+            // If reveal was initiated but particles were already dead (edge case)
+            if (revealInitiated && allDead && managersSnapshot.Count == 0 && !Revealing && !Revealed)
+            {
+                // No particles to animate, clean up canvases and go straight to reveal
                 if (isWasm && jsInProcessModule is not null)
                 {
                     jsInProcessModule.InvokeVoid("dispose", containerRef);
@@ -462,14 +487,6 @@
                     await jsModule.InvokeVoidAsync("dispose", containerRef);
                 }
                 
-                await InvokeAsync(StateHasChanged);
-                break;
-            }
-            
-            // If reveal was initiated but particles were already dead (edge case)
-            if (revealInitiated && allDead && managersSnapshot.Count == 0 && !Revealing && !Revealed)
-            {
-                // No particles to animate, go straight to reveal
                 Revealing = true;
                 revealInitiated = false;
                 await InvokeAsync(StateHasChanged);
@@ -480,15 +497,6 @@
                 
                 Revealed = true;
                 Revealing = false;
-                
-                if (isWasm && jsInProcessModule is not null)
-                {
-                    jsInProcessModule.InvokeVoid("dispose", containerRef);
-                }
-                else if (jsModule is not null)
-                {
-                    await jsModule.InvokeVoidAsync("dispose", containerRef);
-                }
                 
                 await InvokeAsync(StateHasChanged);
                 break;

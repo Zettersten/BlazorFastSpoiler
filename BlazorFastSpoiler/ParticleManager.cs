@@ -46,26 +46,29 @@ internal sealed class ParticleManager
     {
         var area = _width * _height;
         var targetCount = (int)Math.Ceiling((area / 100) * _config.Density);
-        var initialCount = (int)Math.Ceiling(targetCount * 0.8); // Start with more particles for better coverage
+        // Start with full target count to ensure complete coverage
+        var initialCount = targetCount;
 
         for (var i = 0; i < initialCount; i++)
         {
             var particle = CreateParticle();
-            // Set life to be past fade-in phase so particles are visible immediately
+            // Set life to be in the middle of lifetime (past fade-in, before fade-out)
+            // This ensures particles are fully visible immediately
             var fadeInDuration = particle.MaxLife * 0.2;
-            // Ensure we have a valid range: between fadeInDuration and (MaxLife - fadeInDuration)
-            var minLife = fadeInDuration;
-            var maxLife = particle.MaxLife - fadeInDuration;
-            if (maxLife > minLife)
+            var fadeOutDuration = particle.MaxLife * 0.2;
+            var visibleRangeStart = fadeInDuration;
+            var visibleRangeEnd = particle.MaxLife - fadeOutDuration;
+            
+            if (visibleRangeEnd > visibleRangeStart)
             {
-                particle.Life = minLife + (_random.NextDouble() * (maxLife - minLife));
+                particle.Life = visibleRangeStart + (_random.NextDouble() * (visibleRangeEnd - visibleRangeStart));
             }
             else
             {
                 // Fallback if MaxLife is too small
                 particle.Life = particle.MaxLife * 0.5;
             }
-            // Ensure alpha is set to visible value
+            // Ensure alpha is set to visible value immediately
             particle.Alpha = particle.MaxAlpha;
             _particles.Add(particle);
         }
@@ -217,7 +220,23 @@ internal sealed class ParticleManager
             {
                 while (_particles.Count < targetCount)
                 {
-                    _particles.Add(CreateParticle());
+                    var newParticle = CreateParticle();
+                    // New particles should be fully visible immediately
+                    var fadeInDuration = newParticle.MaxLife * 0.2;
+                    var fadeOutDuration = newParticle.MaxLife * 0.2;
+                    var visibleRangeStart = fadeInDuration;
+                    var visibleRangeEnd = newParticle.MaxLife - fadeOutDuration;
+                    
+                    if (visibleRangeEnd > visibleRangeStart)
+                    {
+                        newParticle.Life = visibleRangeStart + (_random.NextDouble() * (visibleRangeEnd - visibleRangeStart));
+                    }
+                    else
+                    {
+                        newParticle.Life = newParticle.MaxLife * 0.5;
+                    }
+                    newParticle.Alpha = newParticle.MaxAlpha;
+                    _particles.Add(newParticle);
                 }
             }
         }

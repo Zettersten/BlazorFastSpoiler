@@ -7,8 +7,9 @@
 }
 
 .blazor-fast-spoiler.hidden {
-    color: transparent;
+    color: transparent !important;
     text-shadow: none;
+    /* Ensure text is completely hidden so particles are visible */
 }
 
 .blazor-fast-spoiler.revealing {
