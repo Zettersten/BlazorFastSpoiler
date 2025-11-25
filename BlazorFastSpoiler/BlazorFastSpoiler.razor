@@ -349,7 +349,7 @@
         var frameInterval = 1000.0 / Fps;
         var lastFrameTime = 0.0;
 
-        while (!cancellationToken.IsCancellationRequested && !Revealed)
+        while (!cancellationToken.IsCancellationRequested && !Revealed && !isDisposed)
         {
             var currentTime = Environment.TickCount64;
             var elapsed = currentTime - lastFrameTime;

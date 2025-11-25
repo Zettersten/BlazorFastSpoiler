@@ -1,106 +1,364 @@
 @page "/"
+@inject IJSRuntime JSRuntime
+@using Microsoft.JSInterop
 
-<PageTitle>BlazorFastSpoiler Demo</PageTitle>
+<PageTitle>BlazorFastSpoiler - Beautiful Particle Effects for Spoiler Text</PageTitle>
 
-<div class="container mt-5">
-    <div class="row">
-        <div class="col-12">
-            <h1>BlazorFastSpoiler</h1>
-            <p class="lead">Modern Blazor component for creating spoiler text with particle effects</p>
+<div class="demo-container">
+    <!-- Hero Section -->
+    <div class="hero-section">
+        <div class="container">
+            <div class="row justify-content-center">
+                <div class="col-lg-10 text-center">
+                    <h1 class="hero-title">
+                        <span class="gradient-text">BlazorFastSpoiler</span>
+                    </h1>
+                    <p class="hero-subtitle">
+                        Create stunning spoiler text with beautiful particle effects. 
+                        Click to reveal hidden content with smooth animations.
+                    </p>
+                    <div class="hero-demo">
+                        <p class="hero-text">
+                            The answer to life, the universe, and everything is 
+                            <BlazorFastSpoiler Density="12.0" Scale="1.2">42</BlazorFastSpoiler>.
+                        </p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="row mt-4">
-        <div class="col-12">
-            <h2>Basic Usage</h2>
-            <p>Click on the spoiler text below to reveal it:</p>
-            <p>
-                The answer to the ultimate question of life, the universe, and everything is 
-                <BlazorFastSpoiler>42</BlazorFastSpoiler>.
-            </p>
+    <!-- Features Section -->
+    <div class="container py-5">
+        <div class="row mb-5">
+            <div class="col-12 text-center">
+                <h2 class="section-title">Features</h2>
+                <p class="section-subtitle">Everything you need for beautiful spoiler effects</p>
+            </div>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>High Performance</h3>
+                    <p>Optimized particle system running at 60 FPS with efficient canvas rendering</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Customizable</h3>
+                    <p>Control particle density, speed, size, and reveal animations</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">♿</div>
+                    <h3>Accessible</h3>
+                    <p>Keyboard accessible with ARIA labels and semantic HTML</p>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="row mt-4">
-        <div class="col-12">
-            <h2>Custom Parameters</h2>
-            <p>Here are examples with different configurations:</p>
-            
-            <h3>High Density</h3>
-            <p>
-                This spoiler has higher particle density: 
-                <BlazorFastSpoiler Density="16.0">Secret message with more particles!</BlazorFastSpoiler>
-            </p>
+    <!-- Examples Section -->
+    <div class="container py-5">
+        <div class="row mb-5">
+            <div class="col-12 text-center">
+                <h2 class="section-title">Examples</h2>
+                <p class="section-subtitle">See BlazorFastSpoiler in action</p>
+            </div>
+        </div>
 
-            <h3>Faster Particles</h3>
-            <p>
-                This spoiler has faster-moving particles: 
-                <BlazorFastSpoiler MinVelocity="0.05" MaxVelocity="0.15">Fast moving particles!</BlazorFastSpoiler>
-            </p>
+        <!-- Basic Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">Basic Usage</h3>
+            <p class="example-description">Simple spoiler text with default settings</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    In the movie <em>The Matrix</em>, the protagonist discovers that 
+                    <BlazorFastSpoiler>reality is a simulation</BlazorFastSpoiler>.
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;BlazorFastSpoiler&gt;
+    reality is a simulation
+&lt;/BlazorFastSpoiler&gt;</code></pre>
+            </div>
+        </div>
 
-            <h3>Longer Reveal Animation</h3>
-            <p>
-                This spoiler has a longer fade-in duration: 
-                <BlazorFastSpoiler RevealDuration="1000">Slow reveal animation</BlazorFastSpoiler>
-            </p>
+        <!-- High Density Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">High Density Particles</h3>
+            <p class="example-description">More particles for a denser effect</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    The secret password is 
+                    <BlazorFastSpoiler Density="20.0" Scale="1.1">P@ssw0rd123!</BlazorFastSpoiler>.
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;BlazorFastSpoiler Density="20.0" Scale="1.1"&gt;
+    P@ssw0rd123!
+&lt;/BlazorFastSpoiler&gt;</code></pre>
+            </div>
+        </div>
 
-            <h3>Scaled Particles</h3>
-            <p>
-                This spoiler has larger particles: 
-                <BlazorFastSpoiler Scale="2.0">Bigger particles!</BlazorFastSpoiler>
-            </p>
+        <!-- Fast Particles Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">Fast Moving Particles</h3>
+            <p class="example-description">Particles move quickly when revealed</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    The hidden message: 
+                    <BlazorFastSpoiler MinVelocity="0.08" MaxVelocity="0.2" Density="15.0">
+                        Speed is the essence of war
+                    </BlazorFastSpoiler>.
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;BlazorFastSpoiler 
+    MinVelocity="0.08" 
+    MaxVelocity="0.2" 
+    Density="15.0"&gt;
+    Speed is the essence of war
+&lt;/BlazorFastSpoiler&gt;</code></pre>
+            </div>
+        </div>
 
-            <h3>Lower FPS</h3>
-            <p>
-                This spoiler runs at 30 FPS for better performance: 
-                <BlazorFastSpoiler Fps="30">Optimized for slower devices</BlazorFastSpoiler>
-            </p>
+        <!-- Large Particles Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">Large Particles</h3>
+            <p class="example-description">Bigger particles for a bolder effect</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    The answer: 
+                    <BlazorFastSpoiler Scale="2.5" Density="6.0">BIG BOLD TEXT</BlazorFastSpoiler>.
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;BlazorFastSpoiler Scale="2.5" Density="6.0"&gt;
+    BIG BOLD TEXT
+&lt;/BlazorFastSpoiler&gt;</code></pre>
+            </div>
+        </div>
+
+        <!-- Slow Reveal Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">Slow Reveal Animation</h3>
+            <p class="example-description">Text fades in slowly after particles disappear</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    The secret: 
+                    <BlazorFastSpoiler RevealDuration="1500" Density="12.0">
+                        Dramatic slow reveal
+                    </BlazorFastSpoiler>.
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;BlazorFastSpoiler RevealDuration="1500" Density="12.0"&gt;
+    Dramatic slow reveal
+&lt;/BlazorFastSpoiler&gt;</code></pre>
+            </div>
+        </div>
+
+        <!-- Multiple Spoilers Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">Multiple Spoilers</h3>
+            <p class="example-description">Use multiple spoilers in the same paragraph</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    The <BlazorFastSpoiler Density="10.0">first</BlazorFastSpoiler> spoiler, 
+                    the <BlazorFastSpoiler Density="10.0">second</BlazorFastSpoiler> spoiler, 
+                    and the <BlazorFastSpoiler Density="10.0">third</BlazorFastSpoiler> spoiler 
+                    all work independently.
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;p&gt;
+    The &lt;BlazorFastSpoiler&gt;first&lt;/BlazorFastSpoiler&gt; spoiler,
+    the &lt;BlazorFastSpoiler&gt;second&lt;/BlazorFastSpoiler&gt; spoiler,
+    and the &lt;BlazorFastSpoiler&gt;third&lt;/BlazorFastSpoiler&gt; spoiler.
+&lt;/p&gt;</code></pre>
+            </div>
+        </div>
+
+        <!-- Rich Content Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">Rich Content</h3>
+            <p class="example-description">Spoilers can contain formatted HTML content</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    Important note: 
+                    <BlazorFastSpoiler Density="12.0">
+                        <strong>Bold text</strong>, <em>italic text</em>, and 
+                        <span style="color: #0071c1;">colored text</span> all work!
+                    </BlazorFastSpoiler>
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;BlazorFastSpoiler&gt;
+    &lt;strong&gt;Bold text&lt;/strong&gt;, 
+    &lt;em&gt;italic text&lt;/em&gt;, and 
+    &lt;span style="color: #0071c1;"&gt;colored text&lt;/span&gt;
+&lt;/BlazorFastSpoiler&gt;</code></pre>
+            </div>
+        </div>
+
+        <!-- Performance Example -->
+        <div class="example-section mb-5">
+            <h3 class="example-title">Performance Optimization</h3>
+            <p class="example-description">Lower FPS for better performance on slower devices</p>
+            <div class="example-demo">
+                <p class="demo-text">
+                    Optimized version: 
+                    <BlazorFastSpoiler Fps="30" Density="8.0">
+                        Runs smoothly on all devices
+                    </BlazorFastSpoiler>.
+                </p>
+            </div>
+            <div class="code-block">
+                <pre><code class="language-razor">&lt;BlazorFastSpoiler Fps="30" Density="8.0"&gt;
+    Runs smoothly on all devices
+&lt;/BlazorFastSpoiler&gt;</code></pre>
+            </div>
         </div>
     </div>
 
-    <div class="row mt-4">
-        <div class="col-12">
-            <h2>Multiple Spoilers</h2>
-            <p>
-                You can have multiple spoilers in the same paragraph: 
-                <BlazorFastSpoiler>First spoiler</BlazorFastSpoiler>, 
-                <BlazorFastSpoiler>Second spoiler</BlazorFastSpoiler>, and 
-                <BlazorFastSpoiler>Third spoiler</BlazorFastSpoiler>.
-            </p>
+    <!-- API Reference Section -->
+    <div class="container py-5">
+        <div class="row mb-5">
+            <div class="col-12 text-center">
+                <h2 class="section-title">API Reference</h2>
+                <p class="section-subtitle">All available parameters</p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-lg-10 mx-auto">
+                <div class="api-table">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Parameter</th>
+                                <th>Type</th>
+                                <th>Default</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>Scale</code></td>
+                                <td>double</td>
+                                <td>1.0</td>
+                                <td>Scale factor for particle size</td>
+                            </tr>
+                            <tr>
+                                <td><code>MinVelocity</code></td>
+                                <td>double</td>
+                                <td>0.01</td>
+                                <td>Minimum velocity for particles (pixels per frame)</td>
+                            </tr>
+                            <tr>
+                                <td><code>MaxVelocity</code></td>
+                                <td>double</td>
+                                <td>0.05</td>
+                                <td>Maximum velocity for particles (pixels per frame)</td>
+                            </tr>
+                            <tr>
+                                <td><code>ParticleLifetime</code></td>
+                                <td>int</td>
+                                <td>120</td>
+                                <td>Particle lifetime in frames at 60fps</td>
+                            </tr>
+                            <tr>
+                                <td><code>Density</code></td>
+                                <td>double</td>
+                                <td>8.0</td>
+                                <td>Target particle density (particles per 100 square pixels)</td>
+                            </tr>
+                            <tr>
+                                <td><code>RevealDuration</code></td>
+                                <td>int</td>
+                                <td>300</td>
+                                <td>Text fade-in duration in milliseconds</td>
+                            </tr>
+                            <tr>
+                                <td><code>SpawnStopDelay</code></td>
+                                <td>int</td>
+                                <td>0</td>
+                                <td>Delay before stopping particle spawning after click (ms)</td>
+                            </tr>
+                            <tr>
+                                <td><code>MonitorPosition</code></td>
+                                <td>bool</td>
+                                <td>false</td>
+                                <td>Enable continuous position monitoring for CSS transforms</td>
+                            </tr>
+                            <tr>
+                                <td><code>Fps</code></td>
+                                <td>int</td>
+                                <td>60</td>
+                                <td>Target frames per second for particle animation</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="row mt-4">
-        <div class="col-12">
-            <h2>Rich Content</h2>
-            <p>
-                Spoilers can contain rich content: 
-                <BlazorFastSpoiler>
-                    <strong>Bold text</strong> and <em>italic text</em> work too!
-                </BlazorFastSpoiler>
-            </p>
+    <!-- Installation Section -->
+    <div class="container py-5">
+        <div class="row mb-5">
+            <div class="col-12 text-center">
+                <h2 class="section-title">Getting Started</h2>
+                <p class="section-subtitle">Install and use BlazorFastSpoiler in your project</p>
+            </div>
         </div>
-    </div>
+        <div class="row">
+            <div class="col-lg-10 mx-auto">
+                <div class="code-block">
+                    <pre><code class="language-bash"># Install via NuGet
+dotnet add package BlazorFastSpoiler</code></pre>
+                </div>
+                <div class="code-block mt-4">
+                    <pre><code class="language-razor">@* In your _Imports.razor *@
+@using BlazorFastSpoiler.Components
 
-    <div class="row mt-4">
-        <div class="col-12">
-            <h2>Accessibility</h2>
-            <p>
-                The component is keyboard accessible. Press <kbd>Enter</kbd> or <kbd>Space</kbd> to reveal: 
-                <BlazorFastSpoiler>Keyboard accessible spoiler</BlazorFastSpoiler>
-            </p>
-        </div>
-    </div>
-
-    <div class="row mt-5">
-        <div class="col-12">
-            <h2>Code Example</h2>
-            <pre><code>&lt;BlazorFastSpoiler 
-    Scale="1.5"
-    Density="12.0"
-    RevealDuration="500"&gt;
+@* Use in your components *@
+&lt;BlazorFastSpoiler Density="12.0" Scale="1.5"&gt;
     Your spoiler text here
 &lt;/BlazorFastSpoiler&gt;</code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer-section">
+        <div class="container text-center py-4">
+            <p class="footer-text">
+                Made with ❤️ for the Blazor community
+            </p>
         </div>
     </div>
 </div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Re-run Prism highlighting after Blazor renders
+            await Task.Delay(200);
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", "if (window.Prism) Prism.highlightAll();");
+            }
+            catch
+            {
+                // Prism might not be loaded yet, ignore
+            }
+        }
+    }
+}
