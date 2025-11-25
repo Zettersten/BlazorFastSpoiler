@@ -7,13 +7,17 @@ const elementRefMap = new Map(); // Map canvas IDs to element references for pos
 const elementCanvasIdsMap = new Map(); // Map elementRef to set of canvas IDs for cleanup
 
 export function createCanvas(id, x, y, width, height, elementRef) {
-    if (!elementRef) return;
+    if (!elementRef || width <= 0 || height <= 0) return;
     
     const canvas = document.createElement('canvas');
     const dpr = window.devicePixelRatio || 1;
     
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    // Ensure minimum canvas size
+    const canvasWidth = Math.max(1, width * dpr);
+    const canvasHeight = Math.max(1, height * dpr);
+    
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.style.position = 'absolute';

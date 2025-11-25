@@ -172,6 +172,9 @@
         
         foreach (var (id, box) in boxes)
         {
+            // Skip invalid bounding boxes (zero or negative dimensions)
+            if (box.Width <= 0 || box.Height <= 0) continue;
+            
             boundingBoxes[id] = box;
             var manager = new ParticleManager(updatedConfig, box.Width, box.Height);
             particleManagers[id] = manager;
@@ -219,12 +222,12 @@
     [JSInvokable]
     public async Task HandleSizeChange()
     {
-        if (Revealed || isDisposed) return;
+        if (Revealed || isDisposed || revealInitiated) return;
 
         // Debounce size changes
         await Task.Delay(50);
         
-        if (isDisposed || Revealed) return;
+        if (isDisposed || Revealed || revealInitiated) return;
 
         // Clean up old canvases and particle managers
         particleManagers.Clear();
@@ -249,6 +252,10 @@
         );
 
         await SetupParticleManagers(config);
+        
+        // Restart animation loop if it was stopped
+        if (Revealed || isDisposed) return;
+        StartAnimationLoop();
     }
 
     private async Task MonitorPositionsAsync(CancellationToken cancellationToken)
@@ -378,35 +385,16 @@
             if (revealInitiated && allDead && !Revealing && !Revealed)
             {
                 Revealing = true;
+                revealInitiated = false; // Clear flag immediately to prevent duplicate processing
                 await InvokeAsync(StateHasChanged);
                 
                 // Wait for reveal animation duration before marking as revealed
                 await Task.Delay(RevealDuration, cancellationToken);
                 
+                if (isDisposed) break; // Check if disposed during delay
+                
                 Revealed = true;
                 Revealing = false;
-                revealInitiated = false;
-                
-                // Clean up canvases when all particles are gone
-                if (isWasm && jsInProcessModule is not null)
-                {
-                    jsInProcessModule.InvokeVoid("dispose", containerRef);
-                }
-                else if (jsModule is not null)
-                {
-                    await jsModule.InvokeVoidAsync("dispose", containerRef);
-                }
-                
-                await InvokeAsync(StateHasChanged);
-                break;
-            }
-            
-            // If we're already revealing and all particles are gone, mark as revealed
-            if (Revealing && allDead)
-            {
-                Revealed = true;
-                Revealing = false;
-                revealInitiated = false;
                 
                 // Clean up canvases when all particles are gone
                 if (isWasm && jsInProcessModule is not null)
@@ -491,7 +479,7 @@
 
     private async Task HandleClick()
     {
-        if (Revealed || Revealing || revealInitiated) return;
+        if (Revealed || Revealing || revealInitiated || isDisposed) return;
 
         revealInitiated = true;
 
@@ -502,6 +490,9 @@
         {
             manager.StartReveal();
         }
+        
+        // Trigger state change to update UI immediately
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)

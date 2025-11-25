@@ -28,15 +28,18 @@ internal sealed class ParticleManager
     public ParticleManager(ParticleConfig config, double width, double height)
     {
         _config = config;
-        _width = width;
-        _height = height;
+        _width = Math.Max(1, width); // Ensure minimum dimensions
+        _height = Math.Max(1, height);
         InitializeParticles();
     }
 
     public void UpdateDimensions(double width, double height)
     {
-        _width = width;
-        _height = height;
+        lock (_lock)
+        {
+            _width = Math.Max(1, width);
+            _height = Math.Max(1, height);
+        }
     }
 
     private void InitializeParticles()
@@ -50,7 +53,18 @@ internal sealed class ParticleManager
             var particle = CreateParticle();
             // Set life to be past fade-in phase so particles are visible immediately
             var fadeInDuration = particle.MaxLife * 0.2;
-            particle.Life = particle.MaxLife - fadeInDuration - (_random.NextDouble() * (particle.MaxLife - fadeInDuration * 2));
+            // Ensure we have a valid range: between fadeInDuration and (MaxLife - fadeInDuration)
+            var minLife = fadeInDuration;
+            var maxLife = particle.MaxLife - fadeInDuration;
+            if (maxLife > minLife)
+            {
+                particle.Life = minLife + (_random.NextDouble() * (maxLife - minLife));
+            }
+            else
+            {
+                // Fallback if MaxLife is too small
+                particle.Life = particle.MaxLife * 0.5;
+            }
             // Ensure alpha is set to visible value
             particle.Alpha = particle.MaxAlpha;
             _particles.Add(particle);
@@ -118,14 +132,27 @@ internal sealed class ParticleManager
                     var dy = p.Y - centerY;
                     var distance = Math.Sqrt(dx * dx + dy * dy);
                     
-                    if (distance > 0.1)
+                    // Always apply outward velocity, even if particle is at center
+                    if (distance < 0.1)
+                    {
+                        // Particle is at or very near center, use random outward direction
+                        var angle = _random.NextDouble() * Math.PI * 2;
+                        var baseSpeed = Math.Max(_config.MinVelocity, Math.Sqrt(p.Vx * p.Vx + p.Vy * p.Vy));
+                        var outwardSpeed = baseSpeed * 3.0;
+                        p.Vx = Math.Cos(angle) * outwardSpeed;
+                        p.Vy = Math.Sin(angle) * outwardSpeed;
+                    }
+                    else
                     {
                         // Normalize direction
                         var dirX = dx / distance;
                         var dirY = dy / distance;
                         
                         // Increase velocity outward (3x multiplier for reveal effect)
-                        var outwardSpeed = Math.Sqrt(p.Vx * p.Vx + p.Vy * p.Vy) * 3.0;
+                        // Use minimum velocity if current velocity is zero
+                        var currentSpeed = Math.Sqrt(p.Vx * p.Vx + p.Vy * p.Vy);
+                        var baseSpeed = Math.Max(currentSpeed, _config.MinVelocity);
+                        var outwardSpeed = baseSpeed * 3.0;
                         p.Vx = dirX * outwardSpeed;
                         p.Vy = dirY * outwardSpeed;
                     }
