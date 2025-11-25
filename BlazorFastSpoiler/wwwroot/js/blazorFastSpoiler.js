@@ -24,7 +24,7 @@ export function createCanvas(id, x, y, width, height, elementRef) {
     canvas.style.left = `${x}px`; // x and y are already relative to container
     canvas.style.top = `${y}px`;
     canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '1';
+    canvas.style.zIndex = '10'; // Higher z-index to ensure particles are above text
     canvas.setAttribute('data-canvas-id', id);
     
     // Append to container element, not body
