@@ -8,50 +8,44 @@
     <!-- Hero Section -->
     <div class="hero-section">
         <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-lg-10 text-center">
-                    <h1 class="hero-title">
-                        <span class="gradient-text">BlazorFastSpoiler</span>
-                    </h1>
-                    <p class="hero-subtitle">
-                        Create stunning spoiler text with beautiful particle effects. 
-                        Click to reveal hidden content with smooth animations.
-                    </p>
-                    <div class="hero-demo">
-                        <p class="hero-text">
-                            The answer to life, the universe, and everything is 
-                            <BlazorFastSpoiler Density="12.0" Scale="1.2">42</BlazorFastSpoiler>.
-                        </p>
-                    </div>
-                </div>
+            <h1 class="hero-title">
+                <span class="gradient-text">BlazorFastSpoiler</span>
+            </h1>
+            <p class="hero-subtitle">
+                Create stunning spoiler text with beautiful particle effects. 
+                Click to reveal hidden content with smooth animations.
+            </p>
+            <div class="hero-demo">
+                <p class="hero-text">
+                    The answer to life, the universe, and everything is 
+                    <BlazorFastSpoiler Density="12.0" Scale="1.2">42</BlazorFastSpoiler>.
+                </p>
             </div>
         </div>
     </div>
 
     <!-- Features Section -->
     <div class="container py-5">
-        <div class="row mb-5">
-            <div class="col-12 text-center">
-                <h2 class="section-title">Features</h2>
-                <p class="section-subtitle">Everything you need for beautiful spoiler effects</p>
-            </div>
+        <div class="mb-5">
+            <h2 class="section-title">Features</h2>
+            <p class="section-subtitle">Everything you need for beautiful spoiler effects</p>
         </div>
         <div class="row g-4">
-            <div class="col-md-4">
+            <div class="col-12 col-md-4">
                 <div class="feature-card">
                     <div class="feature-icon">⚡</div>
                     <h3>High Performance</h3>
                     <p>Optimized particle system running at 60 FPS with efficient canvas rendering</p>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-12 col-md-4">
                 <div class="feature-card">
                     <div class="feature-icon">🎨</div>
                     <h3>Customizable</h3>
                     <p>Control particle density, speed, size, and reveal animations</p>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-12 col-md-4">
                 <div class="feature-card">
                     <div class="feature-icon">♿</div>
                     <h3>Accessible</h3>
@@ -63,11 +57,9 @@
 
     <!-- Examples Section -->
     <div class="container py-5">
-        <div class="row mb-5">
-            <div class="col-12 text-center">
-                <h2 class="section-title">Examples</h2>
-                <p class="section-subtitle">See BlazorFastSpoiler in action</p>
-            </div>
+        <div class="mb-5">
+            <h2 class="section-title">Examples</h2>
+            <p class="section-subtitle">See BlazorFastSpoiler in action</p>
         </div>
 
         <!-- Basic Example -->
@@ -192,7 +184,7 @@
                     Important note: 
                     <BlazorFastSpoiler Density="12.0">
                         <strong>Bold text</strong>, <em>italic text</em>, and 
-                        <span style="color: #0071c1;">colored text</span> all work!
+                        <span style="color: #818cf8;">colored text</span> all work!
                     </BlazorFastSpoiler>
                 </p>
             </div>
@@ -227,116 +219,108 @@
 
     <!-- API Reference Section -->
     <div class="container py-5">
-        <div class="row mb-5">
-            <div class="col-12 text-center">
-                <h2 class="section-title">API Reference</h2>
-                <p class="section-subtitle">All available parameters</p>
-            </div>
+        <div class="mb-5">
+            <h2 class="section-title">API Reference</h2>
+            <p class="section-subtitle">All available parameters</p>
         </div>
-        <div class="row">
-            <div class="col-lg-10 mx-auto">
-                <div class="api-table">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Parameter</th>
-                                <th>Type</th>
-                                <th>Default</th>
-                                <th>Description</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><code>Scale</code></td>
-                                <td>double</td>
-                                <td>1.0</td>
-                                <td>Scale factor for particle size</td>
-                            </tr>
-                            <tr>
-                                <td><code>MinVelocity</code></td>
-                                <td>double</td>
-                                <td>0.01</td>
-                                <td>Minimum velocity for particles (pixels per frame)</td>
-                            </tr>
-                            <tr>
-                                <td><code>MaxVelocity</code></td>
-                                <td>double</td>
-                                <td>0.05</td>
-                                <td>Maximum velocity for particles (pixels per frame)</td>
-                            </tr>
-                            <tr>
-                                <td><code>ParticleLifetime</code></td>
-                                <td>int</td>
-                                <td>120</td>
-                                <td>Particle lifetime in frames at 60fps</td>
-                            </tr>
-                            <tr>
-                                <td><code>Density</code></td>
-                                <td>double</td>
-                                <td>8.0</td>
-                                <td>Target particle density (particles per 100 square pixels)</td>
-                            </tr>
-                            <tr>
-                                <td><code>RevealDuration</code></td>
-                                <td>int</td>
-                                <td>300</td>
-                                <td>Text fade-in duration in milliseconds</td>
-                            </tr>
-                            <tr>
-                                <td><code>SpawnStopDelay</code></td>
-                                <td>int</td>
-                                <td>0</td>
-                                <td>Delay before stopping particle spawning after click (ms)</td>
-                            </tr>
-                            <tr>
-                                <td><code>MonitorPosition</code></td>
-                                <td>bool</td>
-                                <td>false</td>
-                                <td>Enable continuous position monitoring for CSS transforms</td>
-                            </tr>
-                            <tr>
-                                <td><code>Fps</code></td>
-                                <td>int</td>
-                                <td>60</td>
-                                <td>Target frames per second for particle animation</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+        <div class="col-lg-10 mx-auto">
+            <div class="api-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Parameter</th>
+                            <th>Type</th>
+                            <th>Default</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>Scale</code></td>
+                            <td>double</td>
+                            <td>1.0</td>
+                            <td>Scale factor for particle size</td>
+                        </tr>
+                        <tr>
+                            <td><code>MinVelocity</code></td>
+                            <td>double</td>
+                            <td>0.01</td>
+                            <td>Minimum velocity for particles (pixels per frame)</td>
+                        </tr>
+                        <tr>
+                            <td><code>MaxVelocity</code></td>
+                            <td>double</td>
+                            <td>0.05</td>
+                            <td>Maximum velocity for particles (pixels per frame)</td>
+                        </tr>
+                        <tr>
+                            <td><code>ParticleLifetime</code></td>
+                            <td>int</td>
+                            <td>120</td>
+                            <td>Particle lifetime in frames at 60fps</td>
+                        </tr>
+                        <tr>
+                            <td><code>Density</code></td>
+                            <td>double</td>
+                            <td>8.0</td>
+                            <td>Target particle density (particles per 100 square pixels)</td>
+                        </tr>
+                        <tr>
+                            <td><code>RevealDuration</code></td>
+                            <td>int</td>
+                            <td>300</td>
+                            <td>Text fade-in duration in milliseconds</td>
+                        </tr>
+                        <tr>
+                            <td><code>SpawnStopDelay</code></td>
+                            <td>int</td>
+                            <td>0</td>
+                            <td>Delay before stopping particle spawning after click (ms)</td>
+                        </tr>
+                        <tr>
+                            <td><code>MonitorPosition</code></td>
+                            <td>bool</td>
+                            <td>false</td>
+                            <td>Enable continuous position monitoring for CSS transforms</td>
+                        </tr>
+                        <tr>
+                            <td><code>Fps</code></td>
+                            <td>int</td>
+                            <td>60</td>
+                            <td>Target frames per second for particle animation</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 
     <!-- Installation Section -->
     <div class="container py-5">
-        <div class="row mb-5">
-            <div class="col-12 text-center">
-                <h2 class="section-title">Getting Started</h2>
-                <p class="section-subtitle">Install and use BlazorFastSpoiler in your project</p>
-            </div>
+        <div class="mb-5">
+            <h2 class="section-title">Getting Started</h2>
+            <p class="section-subtitle">Install and use BlazorFastSpoiler in your project</p>
         </div>
-        <div class="row">
-            <div class="col-lg-10 mx-auto">
-                <div class="code-block">
-                    <pre><code class="language-bash"># Install via NuGet
+        <div class="col-lg-10 mx-auto">
+            <div class="code-block">
+                <pre><code class="language-bash"># Install via NuGet
 dotnet add package BlazorFastSpoiler</code></pre>
-                </div>
-                <div class="code-block mt-4">
-                    <pre><code class="language-razor">@* In your _Imports.razor *@
+            </div>
+            <div class="code-block" style="margin-top: var(--spacing-md);">
+                <pre><code class="language-razor">@* In your _Imports.razor *@
 @using BlazorFastSpoiler.Components
 
 @* Use in your components *@
 &lt;BlazorFastSpoiler Density="12.0" Scale="1.5"&gt;
     Your spoiler text here
 &lt;/BlazorFastSpoiler&gt;</code></pre>
-                </div>
             </div>
         </div>
     </div>
 
     <!-- Footer -->
     <div class="footer-section">
-        <div class="container text-center py-4">
+        <div class="container text-center">
             <p class="footer-text">
                 Made with ❤️ for the Blazor community
             </p>
