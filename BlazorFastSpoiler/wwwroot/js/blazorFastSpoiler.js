@@ -438,8 +438,15 @@ export function dispose(elementRef) {
     if (canvasIds) {
         for (const id of canvasIds) {
             const canvas = canvasMap.get(id);
-            if (canvas && canvas.parentNode) {
-                canvas.parentNode.removeChild(canvas);
+            if (canvas) {
+                // Check if canvas is still in DOM before removing
+                if (canvas.parentNode) {
+                    try {
+                        canvas.parentNode.removeChild(canvas);
+                    } catch (e) {
+                        // Canvas may have already been removed, ignore
+                    }
+                }
             }
             canvasMap.delete(id);
             contextMap.delete(id);

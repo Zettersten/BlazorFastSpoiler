@@ -81,8 +81,15 @@ internal sealed class ParticleManager
         const double padding = 2;
         var maxX = _width - particleWidth - padding;
         var maxY = _height - particleHeight - padding;
-        var x = padding + _random.NextDouble() * Math.Max(0, maxX - padding);
-        var y = padding + _random.NextDouble() * Math.Max(0, maxY - padding);
+        
+        // Ensure valid position range
+        var minX = padding;
+        var minY = padding;
+        var validMaxX = Math.Max(minX, maxX);
+        var validMaxY = Math.Max(minY, maxY);
+        
+        var x = minX + _random.NextDouble() * Math.Max(0, validMaxX - minX);
+        var y = minY + _random.NextDouble() * Math.Max(0, validMaxY - minY);
 
         var speed = _random.NextDouble() * (_config.MaxVelocity - _config.MinVelocity) + _config.MinVelocity;
         var angle = _random.NextDouble() * Math.PI * 2;

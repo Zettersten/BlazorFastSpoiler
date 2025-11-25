@@ -30,6 +30,7 @@
     private string? textColor;
     private bool isWasm;
     private bool revealInitiated;
+    private bool isHandlingSizeChange;
 
     /// <summary>
     /// Child content to be displayed as spoiler text
@@ -158,6 +159,8 @@
         }
     }
 
+    private CancellationTokenSource? monitoringCts;
+
     private async Task SetupParticleManagers(ParticleConfig config)
     {
         if (jsInProcessModule is null && jsModule is null) return;
@@ -193,7 +196,19 @@
         // Set up continuous position monitoring if enabled (for transforms/animations)
         if (MonitorPosition)
         {
-            _ = Task.Run(async () => await MonitorPositionsAsync(animationCts?.Token ?? CancellationToken.None));
+            monitoringCts?.Cancel();
+            monitoringCts = new CancellationTokenSource();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await MonitorPositionsAsync(monitoringCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected
+                }
+            });
         }
     }
 
@@ -222,40 +237,49 @@
     [JSInvokable]
     public async Task HandleSizeChange()
     {
-        if (Revealed || isDisposed || revealInitiated) return;
+        if (Revealed || isDisposed || revealInitiated || isHandlingSizeChange) return;
 
-        // Debounce size changes
-        await Task.Delay(50);
+        isHandlingSizeChange = true;
         
-        if (isDisposed || Revealed || revealInitiated) return;
-
-        // Clean up old canvases and particle managers
-        particleManagers.Clear();
-        boundingBoxes.Clear();
-        
-        if (isWasm && jsInProcessModule is not null)
+        try
         {
-            jsInProcessModule.InvokeVoid("dispose", containerRef);
+            // Debounce size changes
+            await Task.Delay(50);
+            
+            if (isDisposed || Revealed || revealInitiated) return;
+
+            // Clean up old canvases and particle managers
+            particleManagers.Clear();
+            boundingBoxes.Clear();
+            
+            if (isWasm && jsInProcessModule is not null)
+            {
+                jsInProcessModule.InvokeVoid("dispose", containerRef);
+            }
+            else if (jsModule is not null)
+            {
+                await jsModule.InvokeVoidAsync("dispose", containerRef);
+            }
+
+            var config = new ParticleConfig(
+                Scale,
+                MinVelocity,
+                MaxVelocity,
+                ParticleLifetime,
+                Density,
+                textColor ?? "#000000"
+            );
+
+            await SetupParticleManagers(config);
+            
+            // Restart animation loop if it was stopped
+            if (Revealed || isDisposed) return;
+            StartAnimationLoop();
         }
-        else if (jsModule is not null)
+        finally
         {
-            await jsModule.InvokeVoidAsync("dispose", containerRef);
+            isHandlingSizeChange = false;
         }
-
-        var config = new ParticleConfig(
-            Scale,
-            MinVelocity,
-            MaxVelocity,
-            ParticleLifetime,
-            Density,
-            textColor ?? "#000000"
-        );
-
-        await SetupParticleManagers(config);
-        
-        // Restart animation loop if it was stopped
-        if (Revealed || isDisposed) return;
-        StartAnimationLoop();
     }
 
     private async Task MonitorPositionsAsync(CancellationToken cancellationToken)
@@ -344,7 +368,37 @@
 
     private void StartAnimationLoop()
     {
+        // Don't start if already revealed or disposed
+        if (Revealed || isDisposed) return;
+        
+        // Don't start if no particle managers
+        if (particleManagers.Count == 0) return;
+        
+        // Cancel previous animation loop and wait for it to finish
         animationCts?.Cancel();
+        if (animationTask is not null)
+        {
+            try
+            {
+                // Wait briefly for previous task to finish, but don't block indefinitely
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await animationTask;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected
+                    }
+                });
+            }
+            catch
+            {
+                // Ignore errors
+            }
+        }
+        
         animationCts = new CancellationTokenSource();
         var token = animationCts.Token;
 
@@ -353,7 +407,9 @@
 
     private async Task AnimateAsync(CancellationToken cancellationToken)
     {
-        var frameInterval = 1000.0 / Fps;
+        // Validate FPS to prevent division by zero or invalid values
+        var fps = Math.Max(1, Math.Min(120, Fps)); // Clamp between 1 and 120
+        var frameInterval = 1000.0 / fps;
         var lastFrameTime = 0.0;
 
         while (!cancellationToken.IsCancellationRequested && !Revealed && !isDisposed)
@@ -397,6 +453,34 @@
                 Revealing = false;
                 
                 // Clean up canvases when all particles are gone
+                if (isWasm && jsInProcessModule is not null)
+                {
+                    jsInProcessModule.InvokeVoid("dispose", containerRef);
+                }
+                else if (jsModule is not null)
+                {
+                    await jsModule.InvokeVoidAsync("dispose", containerRef);
+                }
+                
+                await InvokeAsync(StateHasChanged);
+                break;
+            }
+            
+            // If reveal was initiated but particles were already dead (edge case)
+            if (revealInitiated && allDead && managersSnapshot.Count == 0 && !Revealing && !Revealed)
+            {
+                // No particles to animate, go straight to reveal
+                Revealing = true;
+                revealInitiated = false;
+                await InvokeAsync(StateHasChanged);
+                
+                await Task.Delay(RevealDuration, cancellationToken);
+                
+                if (isDisposed) break;
+                
+                Revealed = true;
+                Revealing = false;
+                
                 if (isWasm && jsInProcessModule is not null)
                 {
                     jsInProcessModule.InvokeVoid("dispose", containerRef);
@@ -521,6 +605,9 @@
             }
         }
         animationCts?.Dispose();
+        
+        monitoringCts?.Cancel();
+        monitoringCts?.Dispose();
 
         if (jsInProcessModule is not null)
         {
