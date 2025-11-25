@@ -3,8 +3,10 @@
 
 const canvasMap = new Map();
 const contextMap = new Map();
+const elementRefMap = new Map(); // Map canvas IDs to element references for position updates
+const elementCanvasIdsMap = new Map(); // Map elementRef to set of canvas IDs for cleanup
 
-export function createCanvas(id, x, y, width, height) {
+export function createCanvas(id, x, y, width, height, elementRef) {
     const canvas = document.createElement('canvas');
     const dpr = window.devicePixelRatio || 1;
     
@@ -25,6 +27,14 @@ export function createCanvas(id, x, y, width, height) {
         ctx.scale(dpr, dpr);
         canvasMap.set(id, canvas);
         contextMap.set(id, ctx);
+        if (elementRef) {
+            elementRefMap.set(id, elementRef);
+            // Track which canvases belong to this element
+            if (!elementCanvasIdsMap.has(elementRef)) {
+                elementCanvasIdsMap.set(elementRef, new Set());
+            }
+            elementCanvasIdsMap.get(elementRef).add(id);
+        }
     }
 }
 
@@ -42,8 +52,15 @@ export function drawParticles(id, particles, textColor) {
     // Draw particles
     ctx.fillStyle = textColor;
     for (const particle of particles) {
-        ctx.globalAlpha = particle.alpha;
-        ctx.fillRect(particle.x, particle.y, particle.width, particle.height);
+        if (particle.alpha > 0) {
+            ctx.globalAlpha = particle.alpha;
+            ctx.fillRect(
+                Math.round(particle.x), 
+                Math.round(particle.y), 
+                Math.ceil(particle.width), 
+                Math.ceil(particle.height)
+            );
+        }
     }
     ctx.globalAlpha = 1.0;
 }
@@ -59,18 +76,20 @@ export function getTextColor(element) {
 
 export function getBoundingBoxes(element) {
     const boxes = {};
-    const children = Array.from(element.childNodes);
+    const slotNodes = Array.from(element.childNodes);
     const scrollX = window.scrollX ?? window.pageXOffset;
     const scrollY = window.scrollY ?? window.pageYOffset;
     let index = 0;
 
-    for (const node of children) {
+    const range = document.createRange();
+
+    for (const node of slotNodes) {
         if (node.nodeType === Node.TEXT_NODE) {
-            const range = document.createRange();
             range.selectNodeContents(node);
             const rects = range.getClientRects();
 
-            for (const rect of rects) {
+            for (let i = 0; i < rects.length; i++) {
+                const rect = rects[i];
                 if (rect.width > 0 && rect.height > 0) {
                     boxes[`box_${index}`] = {
                         x: rect.left + scrollX,
@@ -84,7 +103,8 @@ export function getBoundingBoxes(element) {
         } else if (node.nodeType === Node.ELEMENT_NODE) {
             const rects = node.getClientRects();
 
-            for (const rect of rects) {
+            for (let i = 0; i < rects.length; i++) {
+                const rect = rects[i];
                 if (rect.width > 0 && rect.height > 0) {
                     boxes[`box_${index}`] = {
                         x: rect.left + scrollX,
@@ -109,12 +129,287 @@ export function updateCanvasPosition(id, x, y) {
     }
 }
 
-export function dispose() {
-    for (const canvas of canvasMap.values()) {
-        if (canvas.parentNode) {
-            canvas.parentNode.removeChild(canvas);
+export function setupScrollResizeHandlers(elementRef, dotNetRef) {
+    if (!elementRef || !dotNetRef) return;
+
+    let updateDebounceTimer = null;
+    let lastKnownWidth = 0;
+    let lastKnownHeight = 0;
+
+    const updateCanvasPositions = () => {
+        const scrollX = window.scrollX ?? window.pageXOffset;
+        const scrollY = window.scrollY ?? window.pageYOffset;
+        let canvasIndex = 0;
+
+        const range = document.createRange();
+        const slotNodes = Array.from(elementRef.childNodes);
+
+        for (const node of slotNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                range.selectNodeContents(node);
+                const rects = range.getClientRects();
+
+                for (let i = 0; i < rects.length; i++) {
+                    const rect = rects[i];
+                    if (rect.width > 0 && rect.height > 0) {
+                        const id = `box_${canvasIndex}`;
+                        const canvas = canvasMap.get(id);
+                        if (canvas) {
+                            const newLeft = rect.left + scrollX;
+                            const newTop = rect.top + scrollY;
+                            const currentLeft = parseFloat(canvas.style.left) || 0;
+                            const currentTop = parseFloat(canvas.style.top) || 0;
+
+                            if (Math.abs(newLeft - currentLeft) > 0.5 || Math.abs(newTop - currentTop) > 0.5) {
+                                canvas.style.left = `${newLeft}px`;
+                                canvas.style.top = `${newTop}px`;
+                            }
+                        }
+                        canvasIndex++;
+                    }
+                }
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                const rects = node.getClientRects();
+
+                for (let i = 0; i < rects.length; i++) {
+                    const rect = rects[i];
+                    if (rect.width > 0 && rect.height > 0) {
+                        const id = `box_${canvasIndex}`;
+                        const canvas = canvasMap.get(id);
+                        if (canvas) {
+                            const newLeft = rect.left + scrollX;
+                            const newTop = rect.top + scrollY;
+                            const currentLeft = parseFloat(canvas.style.left) || 0;
+                            const currentTop = parseFloat(canvas.style.top) || 0;
+
+                            if (Math.abs(newLeft - currentLeft) > 0.5 || Math.abs(newTop - currentTop) > 0.5) {
+                                canvas.style.left = `${newLeft}px`;
+                                canvas.style.top = `${newTop}px`;
+                            }
+                        }
+                        canvasIndex++;
+                    }
+                }
+            }
+        }
+    };
+
+    const debouncedUpdateCanvasPositions = () => {
+        if (updateDebounceTimer !== null) {
+            clearTimeout(updateDebounceTimer);
+        }
+        updateDebounceTimer = setTimeout(() => {
+            updateCanvasPositions();
+            updateDebounceTimer = null;
+        }, 16); // ~60fps for smooth scrolling
+    };
+
+    const handleSizeChange = () => {
+        const containerRect = elementRef.getBoundingClientRect();
+        const newWidth = containerRect.width;
+        const newHeight = containerRect.height;
+
+        if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
+            lastKnownWidth = newWidth;
+            lastKnownHeight = newHeight;
+            // Notify C# to regenerate particles
+            dotNetRef.invokeMethodAsync('HandleSizeChange');
+        }
+    };
+
+    const scrollHandler = () => {
+        debouncedUpdateCanvasPositions();
+    };
+
+    const resizeHandler = () => {
+        handleSizeChange();
+    };
+
+    // ResizeObserver for container size changes
+    const resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+            const newWidth = entry.contentRect.width;
+            const newHeight = entry.contentRect.height;
+
+            if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
+                lastKnownWidth = newWidth;
+                lastKnownHeight = newHeight;
+                handleSizeChange();
+            }
+        }
+    });
+
+    resizeObserver.observe(elementRef);
+    window.addEventListener('scroll', scrollHandler, { passive: true });
+    window.addEventListener('resize', resizeHandler, { passive: true });
+
+    // Store cleanup function for later disposal
+    const cleanup = () => {
+        resizeObserver.disconnect();
+        window.removeEventListener('scroll', scrollHandler);
+        window.removeEventListener('resize', resizeHandler);
+        if (updateDebounceTimer !== null) {
+            clearTimeout(updateDebounceTimer);
+        }
+    };
+
+    // Store cleanup in a map for later disposal
+    if (!window._blazorFastSpoilerCleanups) {
+        window._blazorFastSpoilerCleanups = new Map();
+    }
+    window._blazorFastSpoilerCleanups.set(elementRef, cleanup);
+}
+
+export function setupPositionMonitoring(elementRef, dotNetRef) {
+    if (!elementRef || !dotNetRef) return;
+
+    let updateDebounceTimer = null;
+    let setupDebounceTimer = null;
+    let lastKnownWidth = 0;
+    let lastKnownHeight = 0;
+
+    const updateCanvasPositions = () => {
+        const boxes = getBoundingBoxes(elementRef);
+        const scrollX = window.scrollX ?? window.pageXOffset;
+        const scrollY = window.scrollY ?? window.pageYOffset;
+        let canvasIndex = 0;
+
+        const range = document.createRange();
+        const slotNodes = Array.from(elementRef.childNodes);
+
+        for (const node of slotNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                range.selectNodeContents(node);
+                const rects = range.getClientRects();
+
+                for (let i = 0; i < rects.length; i++) {
+                    const rect = rects[i];
+                    if (rect.width > 0 && rect.height > 0) {
+                        const id = `box_${canvasIndex}`;
+                        const canvas = canvasMap.get(id);
+                        if (canvas) {
+                            const newLeft = rect.left + scrollX;
+                            const newTop = rect.top + scrollY;
+                            canvas.style.left = `${newLeft}px`;
+                            canvas.style.top = `${newTop}px`;
+                        }
+                        canvasIndex++;
+                    }
+                }
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                const rects = node.getClientRects();
+
+                for (let i = 0; i < rects.length; i++) {
+                    const rect = rects[i];
+                    if (rect.width > 0 && rect.height > 0) {
+                        const id = `box_${canvasIndex}`;
+                        const canvas = canvasMap.get(id);
+                        if (canvas) {
+                            const newLeft = rect.left + scrollX;
+                            const newTop = rect.top + scrollY;
+                            canvas.style.left = `${newLeft}px`;
+                            canvas.style.top = `${newTop}px`;
+                        }
+                        canvasIndex++;
+                    }
+                }
+            }
+        }
+    };
+
+    const debouncedUpdateCanvasPositions = () => {
+        if (updateDebounceTimer !== null) {
+            clearTimeout(updateDebounceTimer);
+        }
+        updateDebounceTimer = setTimeout(() => {
+            updateCanvasPositions();
+            updateDebounceTimer = null;
+        }, 16); // ~60fps for smooth scrolling
+    };
+
+    const handleSizeChange = () => {
+        if (setupDebounceTimer !== null) {
+            clearTimeout(setupDebounceTimer);
+        }
+        setupDebounceTimer = setTimeout(() => {
+            const containerRect = elementRef.getBoundingClientRect();
+            const newWidth = containerRect.width;
+            const newHeight = containerRect.height;
+
+            if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
+                lastKnownWidth = newWidth;
+                lastKnownHeight = newHeight;
+                // Notify C# to regenerate particles
+                dotNetRef.invokeMethodAsync('HandleSizeChange');
+            }
+            setupDebounceTimer = null;
+        }, 50);
+    };
+
+    const scrollHandler = () => {
+        debouncedUpdateCanvasPositions();
+    };
+
+    const resizeHandler = () => {
+        handleSizeChange();
+    };
+
+    // ResizeObserver for container size changes
+    const resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+            const newWidth = entry.contentRect.width;
+            const newHeight = entry.contentRect.height;
+
+            if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
+                lastKnownWidth = newWidth;
+                lastKnownHeight = newHeight;
+                handleSizeChange();
+            }
+        }
+    });
+
+    resizeObserver.observe(elementRef);
+    window.addEventListener('scroll', scrollHandler, { passive: true });
+    window.addEventListener('resize', resizeHandler, { passive: true });
+
+    // Return cleanup function
+    return () => {
+        resizeObserver.disconnect();
+        window.removeEventListener('scroll', scrollHandler);
+        window.removeEventListener('resize', resizeHandler);
+        if (updateDebounceTimer !== null) {
+            clearTimeout(updateDebounceTimer);
+        }
+        if (setupDebounceTimer !== null) {
+            clearTimeout(setupDebounceTimer);
+        }
+    };
+}
+
+export function dispose(elementRef) {
+    if (!elementRef) return;
+
+    // Clean up scroll/resize handlers if they exist
+    if (window._blazorFastSpoilerCleanups) {
+        const cleanup = window._blazorFastSpoilerCleanups.get(elementRef);
+        if (cleanup) {
+            cleanup();
+            window._blazorFastSpoilerCleanups.delete(elementRef);
         }
     }
-    canvasMap.clear();
-    contextMap.clear();
+
+    // Remove only canvases for this component
+    const canvasIds = elementCanvasIdsMap.get(elementRef);
+    if (canvasIds) {
+        for (const id of canvasIds) {
+            const canvas = canvasMap.get(id);
+            if (canvas && canvas.parentNode) {
+                canvas.parentNode.removeChild(canvas);
+            }
+            canvasMap.delete(id);
+            contextMap.delete(id);
+            elementRefMap.delete(id);
+        }
+        elementCanvasIdsMap.delete(elementRef);
+    }
 }
