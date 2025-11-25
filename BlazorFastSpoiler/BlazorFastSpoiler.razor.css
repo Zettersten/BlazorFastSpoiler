@@ -4,6 +4,7 @@
     cursor: pointer;
     user-select: none;
     overflow: visible; /* Allow particles to animate outside bounds */
+    isolation: isolate; /* Create new stacking context for canvas elements */
 }
 
 .blazor-fast-spoiler.hidden {

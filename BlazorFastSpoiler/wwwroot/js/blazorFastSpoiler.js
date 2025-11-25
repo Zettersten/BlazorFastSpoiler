@@ -9,12 +9,18 @@ const elementCanvasIdsMap = new Map(); // Map elementRef to set of canvas IDs fo
 export function createCanvas(id, x, y, width, height, elementRef) {
     if (!elementRef || width <= 0 || height <= 0) return;
     
+    // Ensure element is in DOM
+    if (!elementRef.isConnected) {
+        console.warn('BlazorFastSpoiler: Element not in DOM when creating canvas');
+        return;
+    }
+    
     const canvas = document.createElement('canvas');
     const dpr = window.devicePixelRatio || 1;
     
     // Ensure minimum canvas size
-    const canvasWidth = Math.max(1, width * dpr);
-    const canvasHeight = Math.max(1, height * dpr);
+    const canvasWidth = Math.max(1, Math.ceil(width * dpr));
+    const canvasHeight = Math.max(1, Math.ceil(height * dpr));
     
     canvas.width = canvasWidth;
     canvas.height = canvasHeight;
@@ -24,7 +30,9 @@ export function createCanvas(id, x, y, width, height, elementRef) {
     canvas.style.left = `${x}px`; // x and y are already relative to container
     canvas.style.top = `${y}px`;
     canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '10'; // Higher z-index to ensure particles are above text
+    canvas.style.zIndex = '9999'; // Very high z-index to ensure particles are above text
+    canvas.style.mixBlendMode = 'normal'; // Ensure particles render correctly
+    canvas.style.display = 'block'; // Ensure canvas is displayed
     canvas.setAttribute('data-canvas-id', id);
     
     // Append to container element, not body
@@ -52,21 +60,26 @@ export function drawParticles(id, particles, textColor) {
     
     if (!ctx || !canvas) return;
     
+    // Ensure canvas is visible
+    if (canvas.style.display === 'none') {
+        canvas.style.display = 'block';
+    }
+    
     const dpr = window.devicePixelRatio || 1;
     
-    // Clear canvas
+    // Clear canvas with transparent background
     ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
     
     // Draw particles
-    ctx.fillStyle = textColor;
+    ctx.fillStyle = textColor || '#000000'; // Fallback to black if color is invalid
     for (const particle of particles) {
-        if (particle.alpha > 0) {
-            ctx.globalAlpha = particle.alpha;
+        if (particle.alpha > 0 && particle.width > 0 && particle.height > 0) {
+            ctx.globalAlpha = Math.max(0, Math.min(1, particle.alpha)); // Clamp alpha between 0 and 1
             ctx.fillRect(
                 Math.round(particle.x), 
                 Math.round(particle.y), 
-                Math.ceil(particle.width), 
-                Math.ceil(particle.height)
+                Math.max(1, Math.ceil(particle.width)), 
+                Math.max(1, Math.ceil(particle.height))
             );
         }
     }
