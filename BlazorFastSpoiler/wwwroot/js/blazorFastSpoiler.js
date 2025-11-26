@@ -120,6 +120,9 @@ let drawCallCount = 0;
 let lastLogTime = 0;
 let firstDrawDone = {};
 
+// Cache fill colors per canvas to avoid repeated string operations
+const fillColorCache = new Map();
+
 export function drawParticles(id, particles, textColor) {
     drawCallCount++;
     const now = Date.now();
@@ -137,37 +140,32 @@ export function drawParticles(id, particles, textColor) {
     const ctx = contextMap.get(id);
     const canvas = canvasMap.get(id);
     
-    if (!ctx) {
-        warn('drawParticles: No context for id:', id, 'Available IDs:', Array.from(contextMap.keys()));
+    if (!ctx || !canvas) {
+        if (DEBUG) {
+            warn('drawParticles: No context/canvas for id:', id);
+        }
         return;
-    }
-    
-    if (!canvas) {
-        warn('drawParticles: No canvas for id:', id);
-        return;
-    }
-    
-    // Ensure canvas is visible
-    if (canvas.style.display === 'none') {
-        canvas.style.display = 'block';
     }
     
     // Verify canvas is in DOM
     if (!canvas.isConnected) {
-        error('drawParticles: Canvas not in DOM!', id);
+        if (DEBUG) {
+            error('drawParticles: Canvas not in DOM!', id);
+        }
         return;
     }
     
-    const dpr = window.devicePixelRatio || 1;
-    
-    // Validate particles data
-    if (!particles) {
-        warn('drawParticles: particles is null/undefined');
+    // Validate particles data - early return if empty
+    if (!particles || (Array.isArray(particles) && particles.length === 0)) {
+        // Clear canvas if no particles
+        const dpr = window.devicePixelRatio || 1;
+        const clearWidth = canvas.width / dpr;
+        const clearHeight = canvas.height / dpr;
+        ctx.clearRect(0, 0, clearWidth, clearHeight);
         return;
     }
     
     if (!Array.isArray(particles)) {
-        warn('drawParticles: particles is not an array, type:', typeof particles);
         // Try to handle if it's an object with length
         if (typeof particles === 'object' && particles.length !== undefined) {
             particles = Array.from(particles);
@@ -175,6 +173,8 @@ export function drawParticles(id, particles, textColor) {
             return;
         }
     }
+    
+    const dpr = window.devicePixelRatio || 1;
     
     // On first draw, log detailed info
     if (isFirstDraw) {
@@ -229,16 +229,24 @@ export function drawParticles(id, particles, textColor) {
         }
     }
     
-    // Validate and set fill color
-    let fillColor = textColor || '#ffffff'; // Default to white for dark themes
+    // Validate and set fill color - cache to avoid repeated string operations
+    const cacheKey = `${id}:${textColor || ''}`;
+    let fillColor = fillColorCache.get(cacheKey);
     
-    // Check if color is transparent/invalid
-    if (!fillColor || 
-        fillColor === 'transparent' || 
-        fillColor === 'rgba(0, 0, 0, 0)' ||
-        (fillColor.includes('rgba') && fillColor.endsWith(', 0)'))) {
-        warn('drawParticles: Invalid/transparent color, using white fallback');
-        fillColor = '#ffffff';
+    if (!fillColor) {
+        fillColor = textColor || '#ffffff'; // Default to white for dark themes
+        
+        // Check if color is transparent/invalid
+        if (!fillColor || 
+            fillColor === 'transparent' || 
+            fillColor === 'rgba(0, 0, 0, 0)' ||
+            (fillColor.includes('rgba') && fillColor.endsWith(', 0)'))) {
+            if (DEBUG) {
+                warn('drawParticles: Invalid/transparent color, using white fallback');
+            }
+            fillColor = '#ffffff';
+        }
+        fillColorCache.set(cacheKey, fillColor);
     }
     
     ctx.fillStyle = fillColor;
@@ -771,6 +779,12 @@ export function dispose(elementRef) {
             canvasMap.delete(id);
             contextMap.delete(id);
             elementRefMap.delete(id);
+            // Clear fill color cache for this canvas
+            for (const key of fillColorCache.keys()) {
+                if (key.startsWith(id + ':')) {
+                    fillColorCache.delete(key);
+                }
+            }
         }
         elementCanvasIdsMap.delete(elementRef);
     }

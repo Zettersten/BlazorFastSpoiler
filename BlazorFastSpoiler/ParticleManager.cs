@@ -16,6 +16,10 @@ internal sealed class ParticleManager
     private double _width;
     private double _height;
     private readonly object _lock = new object();
+    
+    // Cache for target count calculation to avoid repeated math
+    private int _cachedTargetCount = -1;
+    private double _cachedArea = -1;
 
     private static readonly ParticleSize[] ParticleSizes =
     [
@@ -39,6 +43,9 @@ internal sealed class ParticleManager
         {
             _width = Math.Max(1, width);
             _height = Math.Max(1, height);
+            // Invalidate cache when dimensions change
+            _cachedArea = -1;
+            _cachedTargetCount = -1;
         }
     }
 
@@ -126,7 +133,15 @@ internal sealed class ParticleManager
         lock (_lock)
         {
             var area = _width * _height;
-            var targetCount = (int)Math.Ceiling((area / 100) * _config.Density);
+            
+            // Cache target count calculation - only recalculate if area changed significantly
+            var targetCount = _cachedTargetCount;
+            if (Math.Abs(area - _cachedArea) > 0.1)
+            {
+                targetCount = (int)Math.Ceiling((area / 100) * _config.Density);
+                _cachedTargetCount = targetCount;
+                _cachedArea = area;
+            }
 
             // Update existing particles
             for (var i = _particles.Count - 1; i >= 0; i--)
@@ -242,11 +257,18 @@ internal sealed class ParticleManager
         }
     }
 
+    // Reuse list to avoid allocations - caller should not modify
+    private readonly List<Particle> _particlesSnapshot = [];
+    
     public IReadOnlyList<Particle> GetParticles()
     {
         lock (_lock)
         {
-            return _particles.ToList();
+            // Reuse existing list capacity, only clear and repopulate
+            _particlesSnapshot.Clear();
+            _particlesSnapshot.Capacity = Math.Max(_particlesSnapshot.Capacity, _particles.Count);
+            _particlesSnapshot.AddRange(_particles);
+            return _particlesSnapshot;
         }
     }
 
