@@ -31,6 +31,11 @@
     private bool isWasm;
     private bool revealInitiated;
     private bool isHandlingSizeChange;
+    
+    // Reusable buffers to avoid allocations
+    private readonly List<(string id, ParticleManager manager)> managersBuffer = new();
+    private readonly Dictionary<string, object[]> particleDataCache = new();
+    private readonly object particleManagersLock = new object();
 
     /// <summary>
     /// Child content to be displayed as spoiler text
@@ -189,9 +194,13 @@
             
             boundingBoxes[id] = box;
             var manager = new ParticleManager(updatedConfig, box.Width, box.Height);
-            particleManagers[id] = manager;
+            
+            lock (particleManagersLock)
+            {
+                particleManagers[id] = manager;
+            }
 
-            // Create canvas in JavaScript
+            // Create canvas in JavaScript (outside lock since it's async)
             if (isWasm && jsInProcessModule is not null)
             {
                 jsInProcessModule.InvokeVoid("createCanvas", id, box.X, box.Y, box.Width, box.Height, containerRef);
@@ -259,8 +268,12 @@
             if (isDisposed || Revealed || revealInitiated) return;
 
             // Clean up old canvases and particle managers
-            particleManagers.Clear();
+            lock (particleManagersLock)
+            {
+                particleManagers.Clear();
+            }
             boundingBoxes.Clear();
+            particleDataCache.Clear(); // Clear cached particle data arrays
             
             if (isWasm && jsInProcessModule is not null)
             {
@@ -294,15 +307,28 @@
 
     private async Task MonitorPositionsAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested && !Revealed)
+        while (!cancellationToken.IsCancellationRequested && !Revealed && !isDisposed)
         {
-            await Task.Delay(16, cancellationToken); // ~60fps
+            try
+            {
+                await Task.Delay(16, cancellationToken); // ~60fps
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (isDisposed || cancellationToken.IsCancellationRequested || Revealed) break;
 
             try
             {
                 var boxes = await GetBoundingBoxesAsync();
+                if (boxes.Count == 0) continue;
+                
                 foreach (var (id, newBox) in boxes)
                 {
+                    if (isDisposed || cancellationToken.IsCancellationRequested) break;
+                    
                     if (boundingBoxes.TryGetValue(id, out var oldBox))
                     {
                         if (Math.Abs(newBox.X - oldBox.X) > 0.5 || 
@@ -311,13 +337,20 @@
                             Math.Abs(newBox.Height - oldBox.Height) > 0.5)
                         {
                             boundingBoxes[id] = newBox;
-                            if (isWasm && jsInProcessModule is not null)
+                            try
                             {
-                                jsInProcessModule.InvokeVoid("updateCanvasPosition", id, newBox.X, newBox.Y);
+                                if (isWasm && jsInProcessModule is not null)
+                                {
+                                    jsInProcessModule.InvokeVoid("updateCanvasPosition", id, newBox.X, newBox.Y);
+                                }
+                                else if (jsModule is not null)
+                                {
+                                    await jsModule.InvokeVoidAsync("updateCanvasPosition", id, newBox.X, newBox.Y);
+                                }
                             }
-                            else if (jsModule is not null)
+                            catch (JSDisconnectedException)
                             {
-                                await jsModule.InvokeVoidAsync("updateCanvasPosition", id, newBox.X, newBox.Y);
+                                break;
                             }
                         }
                     }
@@ -382,37 +415,52 @@
         if (Revealed || isDisposed) return;
         
         // Don't start if no particle managers
-        if (particleManagers.Count == 0) return;
+        lock (particleManagersLock)
+        {
+            if (particleManagers.Count == 0) return;
+        }
         
-        // Cancel previous animation loop and wait for it to finish
+        // Cancel previous animation loop
         animationCts?.Cancel();
-        if (animationTask is not null)
+        animationCts?.Dispose();
+        
+        // Wait for previous task to finish (with timeout to prevent hanging)
+        if (animationTask is not null && !animationTask.IsCompleted)
         {
             try
             {
-                // Wait briefly for previous task to finish, but don't block indefinitely
-                _ = Task.Run(async () =>
+                // Use a short timeout to prevent blocking
+                var completed = animationTask.Wait(100);
+                if (!completed)
                 {
-                    try
-                    {
-                        await animationTask;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Expected
-                    }
-                });
+                    // Task didn't complete in time, but we'll continue anyway
+                    // The cancellation token should stop it eventually
+                }
             }
             catch
             {
-                // Ignore errors
+                // Ignore errors - task may have already completed or faulted
             }
         }
         
         animationCts = new CancellationTokenSource();
         var token = animationCts.Token;
 
-        animationTask = AnimateAsync(token);
+        animationTask = Task.Run(async () =>
+        {
+            try
+            {
+                await AnimateAsync(token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when cancelling
+            }
+            catch (JSDisconnectedException)
+            {
+                // Component disposed
+            }
+        }, token);
     }
 
     private async Task AnimateAsync(CancellationToken cancellationToken)
@@ -421,6 +469,9 @@
         var fps = Math.Max(1, Math.Min(120, Fps)); // Clamp between 1 and 120
         var frameInterval = 1000.0 / fps;
         var lastFrameTime = 0.0;
+        
+        // Reuse buffer for managers snapshot
+        var managersSnapshot = new List<ParticleManager>();
 
         while (!cancellationToken.IsCancellationRequested && !Revealed && !isDisposed)
         {
@@ -429,40 +480,77 @@
 
             if (elapsed < frameInterval)
             {
-                await Task.Delay((int)(frameInterval - elapsed), cancellationToken);
+                var delayMs = (int)(frameInterval - elapsed);
+                if (delayMs > 0)
+                {
+                    try
+                    {
+                        await Task.Delay(delayMs, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
                 continue;
             }
 
             lastFrameTime = currentTime - (elapsed % frameInterval);
 
             // Update all particle managers in C#
-            // Create a snapshot to avoid issues if dictionary is modified
-            var managersSnapshot = particleManagers.Values.ToList();
+            // Reuse buffer instead of creating new list
+            // Thread-safe snapshot
+            lock (particleManagersLock)
+            {
+                managersSnapshot.Clear();
+                managersSnapshot.Capacity = Math.Max(managersSnapshot.Capacity, particleManagers.Count);
+                foreach (var manager in particleManagers.Values)
+                {
+                    if (isDisposed || cancellationToken.IsCancellationRequested) break;
+                    managersSnapshot.Add(manager);
+                }
+            }
+            
             foreach (var manager in managersSnapshot)
             {
-                if (isDisposed) break;
+                if (isDisposed || cancellationToken.IsCancellationRequested) break;
                 manager.Update();
             }
 
             // Check if all particles are dead
-            var allDead = managersSnapshot.All(m => !m.HasParticles());
+            var allDead = managersSnapshot.Count == 0 || managersSnapshot.All(m => !m.HasParticles());
 
             // If reveal was initiated and all particles are gone, start text fade-in
             if (revealInitiated && allDead && !Revealing && !Revealed)
             {
                 // Small delay to ensure particles have fully animated away
-                await Task.Delay(50, cancellationToken);
+                try
+                {
+                    await Task.Delay(50, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
                 
-                if (isDisposed) break;
+                if (isDisposed || cancellationToken.IsCancellationRequested) break;
                 
                 // Clean up canvases before starting text fade-in
-                if (isWasm && jsInProcessModule is not null)
+                try
                 {
-                    jsInProcessModule.InvokeVoid("dispose", containerRef);
+                    if (isWasm && jsInProcessModule is not null)
+                    {
+                        jsInProcessModule.InvokeVoid("dispose", containerRef);
+                    }
+                    else if (jsModule is not null)
+                    {
+                        await jsModule.InvokeVoidAsync("dispose", containerRef);
+                    }
                 }
-                else if (jsModule is not null)
+                catch (JSDisconnectedException)
                 {
-                    await jsModule.InvokeVoidAsync("dispose", containerRef);
+                    // Component disposed
+                    break;
                 }
                 
                 Revealing = true;
@@ -470,9 +558,16 @@
                 await InvokeAsync(StateHasChanged);
                 
                 // Wait for reveal animation duration before marking as revealed
-                await Task.Delay(RevealDuration, cancellationToken);
+                try
+                {
+                    await Task.Delay(RevealDuration, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
                 
-                if (isDisposed) break; // Check if disposed during delay
+                if (isDisposed || cancellationToken.IsCancellationRequested) break;
                 
                 Revealed = true;
                 Revealing = false;
@@ -485,22 +580,36 @@
             if (revealInitiated && allDead && managersSnapshot.Count == 0 && !Revealing && !Revealed)
             {
                 // No particles to animate, clean up canvases and go straight to reveal
-                if (isWasm && jsInProcessModule is not null)
+                try
                 {
-                    jsInProcessModule.InvokeVoid("dispose", containerRef);
+                    if (isWasm && jsInProcessModule is not null)
+                    {
+                        jsInProcessModule.InvokeVoid("dispose", containerRef);
+                    }
+                    else if (jsModule is not null)
+                    {
+                        await jsModule.InvokeVoidAsync("dispose", containerRef);
+                    }
                 }
-                else if (jsModule is not null)
+                catch (JSDisconnectedException)
                 {
-                    await jsModule.InvokeVoidAsync("dispose", containerRef);
+                    break;
                 }
                 
                 Revealing = true;
                 revealInitiated = false;
                 await InvokeAsync(StateHasChanged);
                 
-                await Task.Delay(RevealDuration, cancellationToken);
+                try
+                {
+                    await Task.Delay(RevealDuration, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
                 
-                if (isDisposed) break;
+                if (isDisposed || cancellationToken.IsCancellationRequested) break;
                 
                 Revealed = true;
                 Revealing = false;
@@ -510,30 +619,58 @@
             }
 
             // Render particles to canvas via JavaScript
-            await RenderParticlesAsync();
+            if (!cancellationToken.IsCancellationRequested && !isDisposed && !Revealed)
+            {
+                await RenderParticlesAsync();
+            }
         }
     }
 
     private async Task RenderParticlesAsync()
     {
-        if (Revealed || isDisposed || particleManagers.Count == 0) return;
+        if (Revealed || isDisposed) return;
+        
+        lock (particleManagersLock)
+        {
+            if (particleManagers.Count == 0) return;
+        }
 
         try
         {
-            // Create a snapshot of the dictionary to avoid issues if it's modified during iteration
-            var managersSnapshot = particleManagers.ToList();
-            
-            foreach (var (id, manager) in managersSnapshot)
+            // Reuse buffer instead of creating new list
+            // Thread-safe snapshot
+            lock (particleManagersLock)
             {
-                if (isDisposed) return; // Check again inside loop
+                managersBuffer.Clear();
+                managersBuffer.Capacity = Math.Max(managersBuffer.Capacity, particleManagers.Count);
+                foreach (var kvp in particleManagers)
+                {
+                    managersBuffer.Add((kvp.Key, kvp.Value));
+                }
+            }
+            
+            foreach (var (id, manager) in managersBuffer)
+            {
+                if (isDisposed || Revealed) return; // Check again inside loop
                 
                 var particles = manager.GetParticles();
                 if (particles.Count == 0) continue;
 
-                var particleData = new object[particles.Count];
+                // Reuse cached array or create new one if needed
+                if (!particleDataCache.TryGetValue(id, out var particleData) || particleData.Length < particles.Count)
+                {
+                    particleData = new object[particles.Count];
+                    particleDataCache[id] = particleData;
+                }
+                
+                // Note: We reuse the array even if it's larger than needed
+                // This avoids allocations but means we need to track actual count
+
+                // Reuse existing objects in array where possible
                 for (var i = 0; i < particles.Count; i++)
                 {
                     var p = particles[i];
+                    // Create new anonymous object (unavoidable for JS interop)
                     particleData[i] = new
                     {
                         x = p.X,
@@ -583,11 +720,13 @@
         revealInitiated = true;
 
         // Start reveal animation - particles will animate outward
-        // Create snapshot for thread safety
-        var managersSnapshot = particleManagers.Values.ToList();
-        foreach (var manager in managersSnapshot)
+        // Thread-safe iteration
+        lock (particleManagersLock)
         {
-            manager.StartReveal();
+            foreach (var manager in particleManagers.Values)
+            {
+                manager.StartReveal();
+            }
         }
         
         // Trigger state change to update UI immediately
@@ -608,11 +747,16 @@
         isDisposed = true;
 
         animationCts?.Cancel();
-        if (animationTask is not null)
+        if (animationTask is not null && !animationTask.IsCompleted)
         {
             try
             {
-                await animationTask;
+                // Wait with timeout to prevent hanging
+                var completed = await Task.WhenAny(animationTask, Task.Delay(500));
+                if (completed != animationTask)
+                {
+                    // Task didn't complete in time, but cancellation token should stop it
+                }
             }
             catch (OperationCanceledException)
             {
@@ -620,9 +764,15 @@
             }
         }
         animationCts?.Dispose();
+        animationTask = null;
         
         monitoringCts?.Cancel();
         monitoringCts?.Dispose();
+        monitoringCts = null;
+        
+        // Clear caches
+        particleDataCache.Clear();
+        managersBuffer.Clear();
 
         if (jsInProcessModule is not null)
         {
@@ -651,5 +801,6 @@
         }
 
         objRef?.Dispose();
+        objRef = null;
     }
 }
