@@ -141,14 +141,19 @@
             // Get bounding boxes and initialize particle managers in C#
             await SetupParticleManagers(config);
 
-            // Set up scroll/resize handlers for position updates
-            await SetupScrollResizeHandlersAsync();
-
-            // Render initial particles immediately before starting animation loop
+            // Render initial particles immediately before setting up resize handlers
+            // This ensures particles are visible before any resize events can interfere
             await RenderParticlesAsync();
 
-            // Start animation loop
+            // Start animation loop before setting up resize handlers
             StartAnimationLoop();
+
+            // Set up scroll/resize handlers for position updates
+            // This is done AFTER animation starts to prevent race conditions
+            await SetupScrollResizeHandlersAsync();
+            
+            // Now allow resize handling
+            allowResizeHandling = true;
 
             isInitialized = true;
         }
@@ -163,6 +168,7 @@
     }
 
     private CancellationTokenSource? monitoringCts;
+    private bool allowResizeHandling = false; // Don't allow resize handling until initial setup is complete
 
     private async Task SetupParticleManagers(ParticleConfig config)
     {
@@ -240,7 +246,8 @@
     [JSInvokable]
     public async Task HandleSizeChange()
     {
-        if (Revealed || isDisposed || revealInitiated || isHandlingSizeChange) return;
+        // Don't handle resize until initial setup is complete
+        if (!allowResizeHandling || Revealed || isDisposed || revealInitiated || isHandlingSizeChange) return;
 
         isHandlingSizeChange = true;
         
