@@ -1,10 +1,11 @@
 .blazor-fast-spoiler {
     position: relative;
-    display: inline;
+    display: inline-block; /* Must be inline-block (not inline) to establish containing block for absolute positioned canvas */
     cursor: pointer;
     user-select: none;
     overflow: visible; /* Allow particles to animate outside bounds */
     isolation: isolate; /* Create new stacking context for canvas elements */
+    vertical-align: baseline; /* Maintain text flow alignment */
 }
 
 .blazor-fast-spoiler.hidden {

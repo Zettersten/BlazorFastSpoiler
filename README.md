@@ -1,8 +1,16 @@
 # BlazorFastSpoiler
 
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Demo](https://img.shields.io/badge/Demo-Live-brightgreen)](https://zettersten.github.io/BlazorFastSpoiler/)
+
 A modern Blazor component for creating spoiler text with beautiful particle effects. Inspired by [spoilerjs](https://github.com/shajidhasan/spoilerjs), built with bleeding-edge .NET 10 features and modern CSS.
 
-## Features
+## 🌟 Live Demo
+
+**[Try it now → zettersten.github.io/BlazorFastSpoiler](https://zettersten.github.io/BlazorFastSpoiler/)**
+
+## ✨ Features
 
 - 🎨 **Beautiful Particle Effects** - Canvas-based particle animations that hide spoiler text
 - ⚡ **High Performance** - Optimized C# particle management with minimal JavaScript interop
@@ -13,7 +21,7 @@ A modern Blazor component for creating spoiler text with beautiful particle effe
 - 🧪 **Well Tested** - Comprehensive bUnit test suite
 - 📦 **NuGet Ready** - Packaged and ready for distribution
 
-## Installation
+## 📦 Installation
 
 ```bash
 dotnet add package BlazorFastSpoiler
@@ -24,17 +32,23 @@ Or via NuGet Package Manager:
 Install-Package BlazorFastSpoiler
 ```
 
-## Quick Start
+## 🚀 Quick Start
+
+Add the using directive to your `_Imports.razor`:
 
 ```razor
-@using BlazorFastSpoiler
+@using BlazorFastSpoiler.Components
+```
 
+Then use the component in your Razor files:
+
+```razor
 <BlazorFastSpoiler>
     Your spoiler text here
 </BlazorFastSpoiler>
 ```
 
-## Parameters
+## ⚙️ Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -48,7 +62,7 @@ Install-Package BlazorFastSpoiler
 | `MonitorPosition` | `bool` | `false` | Enable continuous position monitoring for hover effects and CSS transforms |
 | `Fps` | `int` | `60` | Target frames per second for particle animation |
 
-## Examples
+## 📖 Examples
 
 ### Basic Usage
 
@@ -58,30 +72,48 @@ Install-Package BlazorFastSpoiler
 </BlazorFastSpoiler>
 ```
 
-### Custom Configuration
+### High Density Particles
 
 ```razor
-<BlazorFastSpoiler 
-    Scale="1.5"
-    Density="12.0"
-    RevealDuration="500"
-    MinVelocity="0.02"
-    MaxVelocity="0.1">
-    Custom configured spoiler
+<BlazorFastSpoiler Density="20.0" Scale="1.1">
+    Dense particle effect
 </BlazorFastSpoiler>
 ```
 
-### High Performance Mode
+### Fast Moving Particles
 
 ```razor
-<BlazorFastSpoiler 
-    Fps="30"
-    MonitorPosition="false">
+<BlazorFastSpoiler MinVelocity="0.08" MaxVelocity="0.2" Density="15.0">
+    Speed is the essence of war
+</BlazorFastSpoiler>
+```
+
+### Slow Reveal Animation
+
+```razor
+<BlazorFastSpoiler RevealDuration="1500" Density="12.0">
+    Dramatic slow reveal
+</BlazorFastSpoiler>
+```
+
+### Performance Optimized
+
+```razor
+<BlazorFastSpoiler Fps="30" MonitorPosition="false">
     Optimized for slower devices
 </BlazorFastSpoiler>
 ```
 
-## Development
+### Rich Content
+
+```razor
+<BlazorFastSpoiler Density="12.0">
+    <strong>Bold text</strong>, <em>italic text</em>, and 
+    <span style="color: #818cf8;">colored text</span> all work!
+</BlazorFastSpoiler>
+```
+
+## 🛠️ Development
 
 ### Prerequisites
 
@@ -99,7 +131,7 @@ dotnet build
 dotnet test
 ```
 
-### Running Demo
+### Running Demo Locally
 
 ```bash
 cd BlazorFastSpoiler.Demo
@@ -112,41 +144,40 @@ dotnet run
 dotnet pack BlazorFastSpoiler/BlazorFastSpoiler.csproj --configuration Release
 ```
 
-## Demo
-
-Check out the [live demo](https://yourusername.github.io/BlazorFastSpoiler/) deployed on GitHub Pages.
-
-## Architecture
+## 🏗️ Architecture
 
 - **BlazorFastSpoiler** - Main component library (Razor Class Library)
 - **BlazorFastSpoiler.Tests** - bUnit test suite
 - **BlazorFastSpoiler.Demo** - Demo Blazor WebAssembly application
 
-## Technology Stack
+## 🔧 Technology Stack
 
-- .NET 10.0 (Latest LTS)
-- Blazor WebAssembly & Blazor Server (dual rendering support)
-- C# particle management for optimal performance
-- Modern CSS (CSS Variables, Animations)
-- Canvas API (minimal JavaScript - only for rendering)
-- bUnit for testing
+- **.NET 10.0** - Bleeding-edge features and performance
+- **Blazor WebAssembly & Server** - Dual rendering support
+- **C# Particle Management** - All particle calculations in managed code
+- **Modern CSS** - CSS Variables, Animations, CSS Isolation
+- **Canvas API** - Minimal JavaScript, only for rendering
+- **bUnit** - Comprehensive testing
 
-## Performance Optimizations
+## ⚡ Performance Optimizations
 
-- **C# Particle Management**: All particle calculations run in C# for better performance
-- **In-Process JS Calls**: Uses `IJSInProcessObjectReference` for synchronous calls in WASM
-- **Minimal JavaScript**: JavaScript only handles canvas rendering operations
-- **Efficient Updates**: Particle state managed in memory with optimized update loops
-- **SSR Compatible**: Gracefully handles server-side rendering scenarios
+| Optimization | Description |
+|--------------|-------------|
+| **C# Particle Management** | All particle calculations run in C# for better performance |
+| **In-Process JS Calls** | Uses `IJSInProcessObjectReference` for synchronous calls in WASM |
+| **Minimal JavaScript** | JavaScript only handles canvas rendering operations |
+| **Efficient Updates** | Particle state managed in memory with optimized update loops |
+| **SSR Compatible** | Gracefully handles server-side rendering scenarios |
+| **Race Condition Prevention** | Careful initialization order prevents resize handler conflicts |
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## 📄 License
 
-MIT License - see LICENSE file for details
+MIT License - see [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
 Inspired by [spoilerjs](https://github.com/shajidhasan/spoilerjs) by Shajid Hasan.
