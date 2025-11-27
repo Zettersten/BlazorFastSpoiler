@@ -1,791 +1,485 @@
-// BlazorFastSpoiler JavaScript Module - Optimized for performance
-// Only handles canvas operations, all logic is in C#
+// BlazorFastSpoiler - Pure JavaScript particle animation system
+// Uses requestAnimationFrame for smooth 60fps animations with minimal C# interop
 
-const canvasMap = new Map();
-const contextMap = new Map();
-const elementRefMap = new Map(); // Map canvas IDs to element references for position updates
-const elementCanvasIdsMap = new Map(); // Map elementRef to set of canvas IDs for cleanup
+const instances = new WeakMap();
 
-// Debug mode - set to true to enable verbose logging in browser console
-const DEBUG = false;
-const log = (...args) => DEBUG && console.log('[BlazorFastSpoiler]', ...args);
-const warn = (...args) => DEBUG && console.warn('[BlazorFastSpoiler]', ...args);
-const error = (...args) => console.error('[BlazorFastSpoiler]', ...args);
-
-export function createCanvas(id, x, y, width, height, elementRef) {
-    log('createCanvas called:', { id, x, y, width, height, elementRef });
-    log('createCanvas: elementRef type:', typeof elementRef, 'constructor:', elementRef?.constructor?.name);
-    
-    if (!elementRef) {
-        warn('createCanvas: elementRef is null/undefined');
-        return;
-    }
-    
-    // Check if elementRef is a valid DOM element
-    if (!(elementRef instanceof Element)) {
-        warn('createCanvas: elementRef is not a DOM Element!', { 
-            type: typeof elementRef, 
-            constructor: elementRef?.constructor?.name,
-            keys: Object.keys(elementRef || {})
-        });
-        return;
-    }
-    
-    if (width <= 0 || height <= 0) {
-        warn('createCanvas: Invalid dimensions', { width, height });
-        return;
-    }
-    
-    // Ensure element is in DOM
-    if (!elementRef.isConnected) {
-        warn('createCanvas: Element not in DOM when creating canvas');
-        return;
-    }
-    
-    log('createCanvas: Element validated. TagName:', elementRef.tagName, 'className:', elementRef.className);
-    
-    log('createCanvas: Creating canvas element');
-    const canvas = document.createElement('canvas');
-    const dpr = window.devicePixelRatio || 1;
-    log('createCanvas: Device pixel ratio:', dpr);
-    
-    // Ensure minimum canvas size
-    const canvasWidth = Math.max(1, Math.ceil(width * dpr));
-    const canvasHeight = Math.max(1, Math.ceil(height * dpr));
-    
-    log('createCanvas: Canvas internal size:', { canvasWidth, canvasHeight });
-    
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    canvas.style.position = 'absolute';
-    canvas.style.left = `${x}px`; // x and y are already relative to container
-    canvas.style.top = `${y}px`;
-    canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '9999'; // Very high z-index to ensure particles are above text
-    canvas.style.mixBlendMode = 'normal'; // Ensure particles render correctly
-    canvas.style.display = 'block'; // Ensure canvas is displayed
-    canvas.setAttribute('data-canvas-id', id);
-    
-    // Append to container element, not body
-    elementRef.appendChild(canvas);
-    log('createCanvas: Canvas appended to container');
-    
-    const ctx = canvas.getContext('2d', { alpha: true });
-    if (ctx) {
-        ctx.scale(dpr, dpr);
-        canvasMap.set(id, canvas);
-        contextMap.set(id, ctx);
-        log('createCanvas: Context created and stored. Total canvases:', canvasMap.size);
-        if (elementRef) {
-            elementRefMap.set(id, elementRef);
-            // Track which canvases belong to this element
-            if (!elementCanvasIdsMap.has(elementRef)) {
-                elementCanvasIdsMap.set(elementRef, new Set());
-            }
-            elementCanvasIdsMap.get(elementRef).add(id);
-        }
-        
-        // DEBUG: Draw initial test pattern to verify canvas is visible
-        // This will be immediately overwritten by the first drawParticles call
-        if (DEBUG) {
-            const displayWidth = width;
-            const displayHeight = height;
-            log('createCanvas: Drawing initial test fill. Canvas display size:', { displayWidth, displayHeight });
-            
-            // Draw a noticeable pattern - gray background with white dots
-            ctx.fillStyle = 'rgba(100, 100, 100, 0.9)'; // Gray background
-            ctx.fillRect(0, 0, displayWidth, displayHeight);
-            
-            // Draw some particle-like shapes to simulate what particles should look like
-            ctx.fillStyle = 'rgba(255, 255, 255, 1)'; // White particles
-            for (let i = 0; i < 20; i++) {
-                const px = Math.random() * displayWidth;
-                const py = Math.random() * displayHeight;
-                const psize = 1 + Math.random() * 2;
-                ctx.fillRect(px, py, psize, psize);
-            }
-            
-            log('createCanvas: Test pattern drawn. If you see gray box with white dots, canvas is working!');
-            log('createCanvas: This pattern will be replaced by actual particles shortly.');
-        }
-    } else {
-        error('createCanvas: Failed to get 2D context!');
+class Particle {
+    constructor(x, y, vx, vy, width, height, life, maxLife, maxAlpha) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.width = width;
+        this.height = height;
+        this.life = life;
+        this.maxLife = maxLife;
+        this.alpha = 0;
+        this.maxAlpha = maxAlpha;
     }
 }
 
-// Track draw calls for logging
-let drawCallCount = 0;
-let lastLogTime = 0;
-let firstDrawDone = {};
-
-// Cache fill colors per canvas to avoid repeated string operations
-const fillColorCache = new Map();
-
-export function drawParticles(id, particles, textColor) {
-    drawCallCount++;
-    const now = Date.now();
-    const isFirstDraw = !firstDrawDone[id];
-    
-    // Log every 2 seconds or on first draw
-    if (isFirstDraw || now - lastLogTime > 2000) {
-        log('drawParticles: Stats - calls since last log:', drawCallCount, 'canvasMap size:', canvasMap.size, 'contextMap size:', contextMap.size);
-        if (!isFirstDraw) {
-            drawCallCount = 0;
-            lastLogTime = now;
-        }
+class ParticleCanvas {
+    constructor(container, box, config) {
+        this.container = container;
+        this.box = box;
+        this.config = config;
+        this.particles = [];
+        this.spawning = true;
+        this.revealing = false;
+        
+        this.createCanvas();
+        this.initParticles();
     }
     
-    const ctx = contextMap.get(id);
-    const canvas = canvasMap.get(id);
-    
-    if (!ctx || !canvas) {
-        if (DEBUG) {
-            warn('drawParticles: No context/canvas for id:', id);
-        }
-        return;
-    }
-    
-    // Verify canvas is in DOM
-    if (!canvas.isConnected) {
-        if (DEBUG) {
-            error('drawParticles: Canvas not in DOM!', id);
-        }
-        return;
-    }
-    
-    // Validate particles data - early return if empty
-    if (!particles || (Array.isArray(particles) && particles.length === 0)) {
-        // Clear canvas if no particles
+    createCanvas() {
+        const { x, y, width, height } = this.box;
         const dpr = window.devicePixelRatio || 1;
-        const clearWidth = canvas.width / dpr;
-        const clearHeight = canvas.height / dpr;
-        ctx.clearRect(0, 0, clearWidth, clearHeight);
-        return;
+        
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = Math.ceil(width * dpr);
+        this.canvas.height = Math.ceil(height * dpr);
+        this.canvas.style.cssText = `
+            position: absolute;
+            left: ${x}px;
+            top: ${y}px;
+            width: ${width}px;
+            height: ${height}px;
+            pointer-events: none;
+            z-index: 1;
+        `;
+        
+        this.ctx = this.canvas.getContext('2d', { alpha: true });
+        this.ctx.scale(dpr, dpr);
+        this.container.appendChild(this.canvas);
     }
     
-    if (!Array.isArray(particles)) {
-        // Try to handle if it's an object with length
-        if (typeof particles === 'object' && particles.length !== undefined) {
-            particles = Array.from(particles);
-        } else {
-            return;
+    initParticles() {
+        const { width, height } = this.box;
+        const area = width * height;
+        const targetCount = Math.ceil((area / 100) * this.config.density);
+        
+        for (let i = 0; i < targetCount; i++) {
+            const p = this.createParticle();
+            // Start particles in middle of their lifecycle (fully visible)
+            const fadeIn = p.maxLife * 0.2;
+            const fadeOut = p.maxLife * 0.2;
+            p.life = fadeIn + Math.random() * (p.maxLife - fadeIn - fadeOut);
+            p.alpha = p.maxAlpha;
+            this.particles.push(p);
         }
     }
     
-    const dpr = window.devicePixelRatio || 1;
+    createParticle() {
+        const { width, height } = this.box;
+        const sizes = [[1, 1], [1, 2], [2, 1], [2, 2]];
+        const [sw, sh] = sizes[Math.floor(Math.random() * sizes.length)];
+        const scale = this.config.scale;
+        const pWidth = sw * scale;
+        const pHeight = sh * scale;
+        
+        const padding = 2;
+        const x = padding + Math.random() * Math.max(0, width - pWidth - padding * 2);
+        const y = padding + Math.random() * Math.max(0, height - pHeight - padding * 2);
+        
+        const speed = this.config.minVelocity + Math.random() * (this.config.maxVelocity - this.config.minVelocity);
+        const angle = Math.random() * Math.PI * 2;
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed;
+        
+        const lifeVariation = 0.5;
+        const baseLife = this.config.particleLifetime;
+        const life = baseLife * (1 - lifeVariation) + Math.random() * baseLife * lifeVariation * 2;
+        const maxAlpha = Math.random() < 0.5 ? 1.0 : 0.3 + Math.random() * 0.3;
+        
+        return new Particle(x, y, vx, vy, pWidth, pHeight, life, life, maxAlpha);
+    }
     
-    // On first draw, log detailed info
-    if (isFirstDraw) {
-        firstDrawDone[id] = true;
-        log('drawParticles: FIRST DRAW for', id);
-        log('drawParticles: Particles count:', particles.length);
-        log('drawParticles: textColor:', textColor);
-        log('drawParticles: Canvas:', {
-            width: canvas.width,
-            height: canvas.height,
-            styleWidth: canvas.style.width,
-            styleHeight: canvas.style.height,
-            left: canvas.style.left,
-            top: canvas.style.top,
-            dpr,
-            isConnected: canvas.isConnected,
-            parentNode: canvas.parentNode?.tagName
+    update() {
+        const { width, height } = this.box;
+        
+        // Update existing particles
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            
+            // Accelerate outward during reveal
+            if (this.revealing) {
+                const cx = width / 2;
+                const cy = height / 2;
+                const dx = p.x - cx;
+                const dy = p.y - cy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < 0.1) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.max(this.config.minVelocity, Math.sqrt(p.vx * p.vx + p.vy * p.vy)) * 3;
+                    p.vx = Math.cos(angle) * speed;
+                    p.vy = Math.sin(angle) * speed;
+                } else {
+                    const speed = Math.max(Math.sqrt(p.vx * p.vx + p.vy * p.vy), this.config.minVelocity) * 3;
+                    p.vx = (dx / dist) * speed;
+                    p.vy = (dy / dist) * speed;
+                }
+            }
+            
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+            
+            // Calculate alpha based on lifecycle
+            const fadeIn = p.maxLife * 0.2;
+            const fadeOut = p.maxLife * 0.2;
+            
+            if (p.life > p.maxLife - fadeIn) {
+                p.alpha = ((p.maxLife - p.life) / fadeIn) * p.maxAlpha;
+            } else if (p.life < fadeOut || this.revealing) {
+                const fadeDur = this.revealing ? p.maxLife * 0.3 : fadeOut;
+                const progress = this.revealing 
+                    ? Math.min(1, (p.maxLife - p.life) / fadeDur)
+                    : p.life / fadeOut;
+                p.alpha = (1 - progress) * p.maxAlpha;
+            } else {
+                p.alpha = p.maxAlpha;
+            }
+            
+            // Remove dead or out-of-bounds particles
+            const margin = Math.max(width, height) * 0.5;
+            if (p.life <= 0 || p.x < -margin || p.x > width + margin || p.y < -margin || p.y > height + margin) {
+                this.particles.splice(i, 1);
+            }
+        }
+        
+        // Spawn new particles to maintain density
+        if (this.spawning && !this.revealing) {
+            const area = width * height;
+            const targetCount = Math.ceil((area / 100) * this.config.density);
+            
+            while (this.particles.length < targetCount) {
+                const p = this.createParticle();
+                p.life = p.maxLife * (0.2 + Math.random() * 0.6);
+                p.alpha = p.maxAlpha;
+                this.particles.push(p);
+            }
+        }
+    }
+    
+    draw() {
+        const { width, height } = this.box;
+        this.ctx.clearRect(0, 0, width, height);
+        
+        if (this.particles.length === 0) return;
+        
+        this.ctx.fillStyle = this.config.textColor;
+        
+        for (const p of this.particles) {
+            if (p.alpha > 0) {
+                this.ctx.globalAlpha = Math.max(0, Math.min(1, p.alpha));
+                this.ctx.fillRect(
+                    Math.round(p.x),
+                    Math.round(p.y),
+                    Math.max(1, Math.ceil(p.width)),
+                    Math.max(1, Math.ceil(p.height))
+                );
+            }
+        }
+        
+        this.ctx.globalAlpha = 1;
+    }
+    
+    updatePosition(x, y) {
+        this.box.x = x;
+        this.box.y = y;
+        this.canvas.style.left = `${x}px`;
+        this.canvas.style.top = `${y}px`;
+    }
+    
+    hasParticles() {
+        return this.particles.length > 0;
+    }
+    
+    startReveal() {
+        this.revealing = true;
+        this.spawning = false;
+    }
+    
+    destroy() {
+        if (this.canvas.parentNode) {
+            this.canvas.parentNode.removeChild(this.canvas);
+        }
+    }
+}
+
+class SpoilerInstance {
+    constructor(element, config, dotNetRef) {
+        this.element = element;
+        this.config = config;
+        this.dotNetRef = dotNetRef;
+        this.canvases = [];
+        this.animationId = null;
+        this.revealed = false;
+        this.revealing = false;
+        this.resizeObserver = null;
+        
+        this.init();
+    }
+    
+    init() {
+        // Get text color from computed style (walking up DOM if transparent)
+        this.config.textColor = this.getTextColor();
+        
+        // Create canvases for each text/element node
+        this.createCanvases();
+        
+        // Setup resize observer
+        this.setupResizeObserver();
+        
+        // Start animation loop
+        this.startAnimation();
+    }
+    
+    getTextColor() {
+        let el = this.element.parentElement || this.element;
+        
+        while (el && el !== document.body) {
+            const style = getComputedStyle(el);
+            const color = style.color;
+            
+            if (color && color !== 'transparent' && 
+                color !== 'rgba(0, 0, 0, 0)' && 
+                !color.endsWith(', 0)')) {
+                return color;
+            }
+            el = el.parentElement;
+        }
+        
+        return getComputedStyle(document.body).color || '#000000';
+    }
+    
+    createCanvases() {
+        // Clear existing canvases
+        this.canvases.forEach(c => c.destroy());
+        this.canvases = [];
+        
+        const containerRect = this.element.getBoundingClientRect();
+        const range = document.createRange();
+        
+        for (const node of this.element.childNodes) {
+            // Skip existing canvas elements
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') continue;
+            
+            let rects;
+            if (node.nodeType === Node.TEXT_NODE) {
+                range.selectNodeContents(node);
+                rects = range.getClientRects();
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                rects = node.getClientRects();
+            } else {
+                continue;
+            }
+            
+            for (const rect of rects) {
+                if (rect.width > 0 && rect.height > 0) {
+                    const box = {
+                        x: rect.left - containerRect.left,
+                        y: rect.top - containerRect.top,
+                        width: rect.width,
+                        height: rect.height
+                    };
+                    
+                    const canvas = new ParticleCanvas(this.element, box, this.config);
+                    this.canvases.push(canvas);
+                }
+            }
+        }
+    }
+    
+    setupResizeObserver() {
+        let lastWidth = this.element.offsetWidth;
+        let lastHeight = this.element.offsetHeight;
+        let debounceTimer = null;
+        
+        this.resizeObserver = new ResizeObserver(entries => {
+            if (this.revealed || this.revealing) return;
+            
+            const entry = entries[0];
+            const { width, height } = entry.contentRect;
+            
+            if (Math.abs(width - lastWidth) > 1 || Math.abs(height - lastHeight) > 1) {
+                lastWidth = width;
+                lastHeight = height;
+                
+                // Debounce recreation
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    if (!this.revealed && !this.revealing) {
+                        this.createCanvases();
+                    }
+                }, 100);
+            }
         });
         
-        if (particles.length > 0) {
-            const p = particles[0];
-            log('drawParticles: First particle raw:', p);
-            log('drawParticles: First particle values:', {
-                x: p?.x,
-                y: p?.y,
-                width: p?.width,
-                height: p?.height,
-                alpha: p?.alpha
-            });
-        }
+        this.resizeObserver.observe(this.element);
         
-        // Check color validity
-        log('drawParticles: Testing fillStyle with color:', textColor);
-    }
-    
-    // Clear canvas with transparent background
-    const clearWidth = canvas.width / dpr;
-    const clearHeight = canvas.height / dpr;
-    ctx.clearRect(0, 0, clearWidth, clearHeight);
-    
-    // DEBUG: Draw corner indicators on every frame to prove canvas is rendering
-    if (DEBUG) {
-        ctx.save();
-        ctx.fillStyle = 'rgba(0, 255, 0, 0.8)'; // Green indicator
-        ctx.fillRect(0, 0, 2, 2); // Top-left corner marker
-        ctx.fillRect(clearWidth - 2, 0, 2, 2); // Top-right corner marker
-        ctx.fillRect(0, clearHeight - 2, 2, 2); // Bottom-left corner marker
-        ctx.fillRect(clearWidth - 2, clearHeight - 2, 2, 2); // Bottom-right corner marker
-        ctx.restore();
-        if (isFirstDraw) {
-            log('drawParticles: DEBUG corner markers drawn (will persist on every frame)');
-        }
-    }
-    
-    // Validate and set fill color - cache to avoid repeated string operations
-    const cacheKey = `${id}:${textColor || ''}`;
-    let fillColor = fillColorCache.get(cacheKey);
-    
-    if (!fillColor) {
-        fillColor = textColor || '#ffffff'; // Default to white for dark themes
+        // Handle scroll for position updates
+        this.scrollHandler = () => {
+            if (this.revealed || this.canvases.length === 0) return;
+            this.updateCanvasPositions();
+        };
         
-        // Check if color is transparent/invalid
-        if (!fillColor || 
-            fillColor === 'transparent' || 
-            fillColor === 'rgba(0, 0, 0, 0)' ||
-            (fillColor.includes('rgba') && fillColor.endsWith(', 0)'))) {
-            if (DEBUG) {
-                warn('drawParticles: Invalid/transparent color, using white fallback');
-            }
-            fillColor = '#ffffff';
-        }
-        fillColorCache.set(cacheKey, fillColor);
+        window.addEventListener('scroll', this.scrollHandler, { passive: true });
     }
     
-    ctx.fillStyle = fillColor;
-    
-    let drawnCount = 0;
-    let skippedCount = 0;
-    
-    for (const particle of particles) {
-        // Get values with fallbacks
-        const x = particle?.x ?? particle?.X ?? 0;
-        const y = particle?.y ?? particle?.Y ?? 0;
-        const width = particle?.width ?? particle?.Width ?? 0;
-        const height = particle?.height ?? particle?.Height ?? 0;
-        const alpha = particle?.alpha ?? particle?.Alpha ?? 0;
-        
-        if (alpha > 0 && width > 0 && height > 0) {
-            ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-            ctx.fillRect(
-                Math.round(x), 
-                Math.round(y), 
-                Math.max(1, Math.ceil(width)), 
-                Math.max(1, Math.ceil(height))
-            );
-            drawnCount++;
-        } else {
-            skippedCount++;
-        }
-    }
-    ctx.globalAlpha = 1.0;
-    
-    // Log on first draw or if something is wrong
-    if (isFirstDraw || (drawnCount === 0 && particles.length > 0)) {
-        log('drawParticles: Drew', drawnCount, 'skipped', skippedCount, 'of', particles.length, 'particles');
-        if (drawnCount === 0 && particles.length > 0) {
-            warn('drawParticles: 0 particles drawn! First particle:', particles[0]);
-        }
-    }
-}
-
-export function getTextColor(element) {
-    try {
-        // The element has 'color: transparent' when hidden, so we need to get color from parent
-        // or calculate what the color WOULD be without the transparent override
-        let targetElement = element.parentElement || element;
-        let computedStyle = window.getComputedStyle(targetElement);
-        let color = computedStyle.color;
-        
-        log('getTextColor: Initial color from parent:', color);
-        
-        // Check if color is transparent or nearly transparent
-        const isTransparent = !color || 
-            color === 'transparent' || 
-            color === 'rgba(0, 0, 0, 0)' ||
-            color.includes('rgba') && color.endsWith(', 0)');
-        
-        if (isTransparent) {
-            // Try walking up the DOM tree to find a non-transparent color
-            let parent = targetElement.parentElement;
-            while (parent && parent !== document.body) {
-                computedStyle = window.getComputedStyle(parent);
-                color = computedStyle.color;
-                log('getTextColor: Checking parent color:', color, 'for element:', parent.tagName);
-                
-                const parentIsTransparent = !color || 
-                    color === 'transparent' || 
-                    color === 'rgba(0, 0, 0, 0)' ||
-                    color.includes('rgba') && color.endsWith(', 0)');
-                    
-                if (!parentIsTransparent) {
-                    log('getTextColor: Found non-transparent color:', color);
-                    break;
-                }
-                parent = parent.parentElement;
-            }
-        }
-        
-        // If still no color, check for CSS custom properties or fallback
-        if (!color || color === 'transparent' || color === 'rgba(0, 0, 0, 0)') {
-            // Try to get body color as ultimate fallback
-            const bodyStyle = window.getComputedStyle(document.body);
-            color = bodyStyle.color || '#000000';
-            log('getTextColor: Using body color fallback:', color);
-        }
-        
-        log('getTextColor: Final color:', color, 'for element:', element);
-        return color || '#000000';
-    } catch (e) {
-        error('getTextColor: Error:', e);
-        return '#000000';
-    }
-}
-
-export function getBoundingBoxes(element) {
-    log('getBoundingBoxes: Called with element:', element);
-    const boxes = {};
-    
-    if (!element) {
-        warn('getBoundingBoxes: Element is null/undefined');
-        return boxes;
-    }
-    
-    const slotNodes = Array.from(element.childNodes);
-    log('getBoundingBoxes: Found', slotNodes.length, 'child nodes');
-    
-    const containerRect = element.getBoundingClientRect();
-    log('getBoundingBoxes: Container rect:', containerRect);
-    
-    const scrollX = window.scrollX ?? window.pageXOffset;
-    const scrollY = window.scrollY ?? window.pageYOffset;
-    let index = 0;
-
-    const range = document.createRange();
-
-    for (const node of slotNodes) {
-        // Skip canvas elements
-        if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') {
-            log('getBoundingBoxes: Skipping canvas element');
-            continue;
-        }
-        
-        if (node.nodeType === Node.TEXT_NODE) {
-            log('getBoundingBoxes: Processing text node:', node.textContent?.substring(0, 20));
-            range.selectNodeContents(node);
-            const rects = range.getClientRects();
-            log('getBoundingBoxes: Text node has', rects.length, 'rects');
-
-            for (let i = 0; i < rects.length; i++) {
-                const rect = rects[i];
-                if (rect.width > 0 && rect.height > 0) {
-                    // Calculate position relative to container
-                    const relativeX = rect.left - containerRect.left;
-                    const relativeY = rect.top - containerRect.top;
-                    
-                    boxes[`box_${index}`] = {
-                        x: relativeX,
-                        y: relativeY,
-                        width: rect.width,
-                        height: rect.height
-                    };
-                    log('getBoundingBoxes: Added box_' + index, boxes[`box_${index}`]);
-                    index++;
-                }
-            }
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-            log('getBoundingBoxes: Processing element node:', node.tagName);
-            const rects = node.getClientRects();
-
-            for (let i = 0; i < rects.length; i++) {
-                const rect = rects[i];
-                if (rect.width > 0 && rect.height > 0) {
-                    // Calculate position relative to container
-                    const relativeX = rect.left - containerRect.left;
-                    const relativeY = rect.top - containerRect.top;
-                    
-                    boxes[`box_${index}`] = {
-                        x: relativeX,
-                        y: relativeY,
-                        width: rect.width,
-                        height: rect.height
-                    };
-                    log('getBoundingBoxes: Added box_' + index, boxes[`box_${index}`]);
-                    index++;
-                }
-            }
-        }
-    }
-
-    log('getBoundingBoxes: Returning', Object.keys(boxes).length, 'boxes:', boxes);
-    return boxes;
-}
-
-// Debug function to test canvas drawing
-export function testCanvasDrawing(id) {
-    log('testCanvasDrawing: Testing canvas', id);
-    const ctx = contextMap.get(id);
-    const canvas = canvasMap.get(id);
-    
-    if (!ctx || !canvas) {
-        error('testCanvasDrawing: Canvas or context not found for id:', id);
-        return false;
-    }
-    
-    const dpr = window.devicePixelRatio || 1;
-    const width = canvas.width / dpr;
-    const height = canvas.height / dpr;
-    
-    log('testCanvasDrawing: Drawing test pattern on canvas', { width, height, dpr });
-    
-    // Clear
-    ctx.clearRect(0, 0, width, height);
-    
-    // Draw a red rectangle
-    ctx.fillStyle = 'red';
-    ctx.globalAlpha = 1.0;
-    ctx.fillRect(0, 0, width, height);
-    
-    // Draw a blue circle in the center
-    ctx.fillStyle = 'blue';
-    ctx.beginPath();
-    ctx.arc(width/2, height/2, Math.min(width, height)/4, 0, Math.PI * 2);
-    ctx.fill();
-    
-    log('testCanvasDrawing: Test pattern drawn successfully');
-    return true;
-}
-
-export function updateCanvasPosition(id, x, y) {
-    const canvas = canvasMap.get(id);
-    const elementRef = elementRefMap.get(id);
-    if (canvas && elementRef) {
-        // Position is already relative to container, so use directly
-        canvas.style.left = `${x}px`;
-        canvas.style.top = `${y}px`;
-    }
-}
-
-export function setupScrollResizeHandlers(elementRef, dotNetRef) {
-    if (!elementRef || !dotNetRef) {
-        warn('setupScrollResizeHandlers: Missing elementRef or dotNetRef');
-        return;
-    }
-    
-    log('setupScrollResizeHandlers: Setting up handlers for element:', elementRef);
-
-    let updateDebounceTimer = null;
-    
-    // Initialize with current dimensions to prevent immediate resize callback
-    const initialRect = elementRef.getBoundingClientRect();
-    let lastKnownWidth = initialRect.width;
-    let lastKnownHeight = initialRect.height;
-    log('setupScrollResizeHandlers: Initial dimensions:', { lastKnownWidth, lastKnownHeight });
-
-    const updateCanvasPositions = () => {
-        const containerRect = elementRef.getBoundingClientRect();
-        let canvasIndex = 0;
-
+    updateCanvasPositions() {
+        const containerRect = this.element.getBoundingClientRect();
         const range = document.createRange();
-        const slotNodes = Array.from(elementRef.childNodes);
-
-        for (const node of slotNodes) {
-            // Skip canvas elements
-            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') {
+        let canvasIndex = 0;
+        
+        for (const node of this.element.childNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') continue;
+            
+            let rects;
+            if (node.nodeType === Node.TEXT_NODE) {
+                range.selectNodeContents(node);
+                rects = range.getClientRects();
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                rects = node.getClientRects();
+            } else {
                 continue;
             }
             
-            if (node.nodeType === Node.TEXT_NODE) {
-                range.selectNodeContents(node);
-                const rects = range.getClientRects();
-
-                for (let i = 0; i < rects.length; i++) {
-                    const rect = rects[i];
-                    if (rect.width > 0 && rect.height > 0) {
-                        const id = `box_${canvasIndex}`;
-                        const canvas = canvasMap.get(id);
-                        if (canvas) {
-                            // Calculate relative position
-                            const newLeft = rect.left - containerRect.left;
-                            const newTop = rect.top - containerRect.top;
-                            const currentLeft = parseFloat(canvas.style.left) || 0;
-                            const currentTop = parseFloat(canvas.style.top) || 0;
-
-                            if (Math.abs(newLeft - currentLeft) > 0.5 || Math.abs(newTop - currentTop) > 0.5) {
-                                canvas.style.left = `${newLeft}px`;
-                                canvas.style.top = `${newTop}px`;
-                            }
-                        }
-                        canvasIndex++;
-                    }
-                }
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-                const rects = node.getClientRects();
-
-                for (let i = 0; i < rects.length; i++) {
-                    const rect = rects[i];
-                    if (rect.width > 0 && rect.height > 0) {
-                        const id = `box_${canvasIndex}`;
-                        const canvas = canvasMap.get(id);
-                        if (canvas) {
-                            // Calculate relative position
-                            const newLeft = rect.left - containerRect.left;
-                            const newTop = rect.top - containerRect.top;
-                            const currentLeft = parseFloat(canvas.style.left) || 0;
-                            const currentTop = parseFloat(canvas.style.top) || 0;
-
-                            if (Math.abs(newLeft - currentLeft) > 0.5 || Math.abs(newTop - currentTop) > 0.5) {
-                                canvas.style.left = `${newLeft}px`;
-                                canvas.style.top = `${newTop}px`;
-                            }
-                        }
-                        canvasIndex++;
-                    }
+            for (const rect of rects) {
+                if (rect.width > 0 && rect.height > 0 && canvasIndex < this.canvases.length) {
+                    const x = rect.left - containerRect.left;
+                    const y = rect.top - containerRect.top;
+                    this.canvases[canvasIndex].updatePosition(x, y);
+                    canvasIndex++;
                 }
             }
         }
-    };
-
-    const debouncedUpdateCanvasPositions = () => {
-        if (updateDebounceTimer !== null) {
-            clearTimeout(updateDebounceTimer);
-        }
-        updateDebounceTimer = setTimeout(() => {
-            updateCanvasPositions();
-            updateDebounceTimer = null;
-        }, 16); // ~60fps for smooth scrolling
-    };
-
-    const handleSizeChange = () => {
-        const containerRect = elementRef.getBoundingClientRect();
-        const newWidth = containerRect.width;
-        const newHeight = containerRect.height;
-
-        if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
-            lastKnownWidth = newWidth;
-            lastKnownHeight = newHeight;
-            // Notify C# to regenerate particles
-            dotNetRef.invokeMethodAsync('HandleSizeChange');
-        }
-    };
-
-    const scrollHandler = () => {
-        debouncedUpdateCanvasPositions();
-    };
-
-    const resizeHandler = () => {
-        handleSizeChange();
-    };
-
-    // ResizeObserver for container size changes
-    const resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-            const newWidth = entry.contentRect.width;
-            const newHeight = entry.contentRect.height;
-
-            if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
-                lastKnownWidth = newWidth;
-                lastKnownHeight = newHeight;
-                handleSizeChange();
-            }
-        }
-    });
-
-    resizeObserver.observe(elementRef);
-    window.addEventListener('scroll', scrollHandler, { passive: true });
-    window.addEventListener('resize', resizeHandler, { passive: true });
-
-    // Store cleanup function for later disposal
-    const cleanup = () => {
-        resizeObserver.disconnect();
-        window.removeEventListener('scroll', scrollHandler);
-        window.removeEventListener('resize', resizeHandler);
-        if (updateDebounceTimer !== null) {
-            clearTimeout(updateDebounceTimer);
-        }
-    };
-
-    // Store cleanup in a map for later disposal
-    if (!window._blazorFastSpoilerCleanups) {
-        window._blazorFastSpoilerCleanups = new Map();
-    }
-    window._blazorFastSpoilerCleanups.set(elementRef, cleanup);
-}
-
-export function setupPositionMonitoring(elementRef, dotNetRef) {
-    if (!elementRef || !dotNetRef) {
-        warn('setupPositionMonitoring: Missing elementRef or dotNetRef');
-        return;
     }
     
-    log('setupPositionMonitoring: Setting up monitoring for element:', elementRef);
-
-    let updateDebounceTimer = null;
-    let setupDebounceTimer = null;
-    
-    // Initialize with current dimensions to prevent immediate resize callback
-    const initialRect = elementRef.getBoundingClientRect();
-    let lastKnownWidth = initialRect.width;
-    let lastKnownHeight = initialRect.height;
-    log('setupPositionMonitoring: Initial dimensions:', { lastKnownWidth, lastKnownHeight });
-
-    const updateCanvasPositions = () => {
-        const containerRect = elementRef.getBoundingClientRect();
-        let canvasIndex = 0;
-
-        const range = document.createRange();
-        const slotNodes = Array.from(elementRef.childNodes);
-
-        for (const node of slotNodes) {
-            // Skip canvas elements
-            if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'CANVAS') {
-                continue;
+    startAnimation() {
+        if (this.animationId !== null) return;
+        
+        const animate = () => {
+            if (this.revealed) {
+                this.animationId = null;
+                return;
             }
             
-            if (node.nodeType === Node.TEXT_NODE) {
-                range.selectNodeContents(node);
-                const rects = range.getClientRects();
-
-                for (let i = 0; i < rects.length; i++) {
-                    const rect = rects[i];
-                    if (rect.width > 0 && rect.height > 0) {
-                        const id = `box_${canvasIndex}`;
-                        const canvas = canvasMap.get(id);
-                        if (canvas) {
-                            // Calculate relative position
-                            const newLeft = rect.left - containerRect.left;
-                            const newTop = rect.top - containerRect.top;
-                            canvas.style.left = `${newLeft}px`;
-                            canvas.style.top = `${newTop}px`;
-                        }
-                        canvasIndex++;
-                    }
-                }
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-                const rects = node.getClientRects();
-
-                for (let i = 0; i < rects.length; i++) {
-                    const rect = rects[i];
-                    if (rect.width > 0 && rect.height > 0) {
-                        const id = `box_${canvasIndex}`;
-                        const canvas = canvasMap.get(id);
-                        if (canvas) {
-                            // Calculate relative position
-                            const newLeft = rect.left - containerRect.left;
-                            const newTop = rect.top - containerRect.top;
-                            canvas.style.left = `${newLeft}px`;
-                            canvas.style.top = `${newTop}px`;
-                        }
-                        canvasIndex++;
-                    }
-                }
+            // Update and draw all canvases
+            let hasParticles = false;
+            for (const canvas of this.canvases) {
+                canvas.update();
+                canvas.draw();
+                if (canvas.hasParticles()) hasParticles = true;
             }
-        }
-    };
-
-    const debouncedUpdateCanvasPositions = () => {
-        if (updateDebounceTimer !== null) {
-            clearTimeout(updateDebounceTimer);
-        }
-        updateDebounceTimer = setTimeout(() => {
-            updateCanvasPositions();
-            updateDebounceTimer = null;
-        }, 16); // ~60fps for smooth scrolling
-    };
-
-    const handleSizeChange = () => {
-        if (setupDebounceTimer !== null) {
-            clearTimeout(setupDebounceTimer);
-        }
-        setupDebounceTimer = setTimeout(() => {
-            const containerRect = elementRef.getBoundingClientRect();
-            const newWidth = containerRect.width;
-            const newHeight = containerRect.height;
-
-            if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
-                lastKnownWidth = newWidth;
-                lastKnownHeight = newHeight;
-                // Notify C# to regenerate particles
-                dotNetRef.invokeMethodAsync('HandleSizeChange');
+            
+            // Check if reveal animation is complete
+            if (this.revealing && !hasParticles) {
+                this.completeReveal();
+                return;
             }
-            setupDebounceTimer = null;
-        }, 50);
-    };
-
-    const scrollHandler = () => {
-        debouncedUpdateCanvasPositions();
-    };
-
-    const resizeHandler = () => {
-        handleSizeChange();
-    };
-
-    // ResizeObserver for container size changes
-    const resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-            const newWidth = entry.contentRect.width;
-            const newHeight = entry.contentRect.height;
-
-            if (newWidth !== lastKnownWidth || newHeight !== lastKnownHeight) {
-                lastKnownWidth = newWidth;
-                lastKnownHeight = newHeight;
-                handleSizeChange();
-            }
-        }
-    });
-
-    resizeObserver.observe(elementRef);
-    window.addEventListener('scroll', scrollHandler, { passive: true });
-    window.addEventListener('resize', resizeHandler, { passive: true });
-
-    // Return cleanup function
-    return () => {
-        resizeObserver.disconnect();
-        window.removeEventListener('scroll', scrollHandler);
-        window.removeEventListener('resize', resizeHandler);
-        if (updateDebounceTimer !== null) {
-            clearTimeout(updateDebounceTimer);
-        }
-        if (setupDebounceTimer !== null) {
-            clearTimeout(setupDebounceTimer);
-        }
-    };
-}
-
-export function dispose(elementRef) {
-    if (!elementRef) return;
-
-    // Clean up scroll/resize handlers if they exist
-    if (window._blazorFastSpoilerCleanups) {
-        const cleanup = window._blazorFastSpoilerCleanups.get(elementRef);
-        if (cleanup) {
-            cleanup();
-            window._blazorFastSpoilerCleanups.delete(elementRef);
+            
+            this.animationId = requestAnimationFrame(animate);
+        };
+        
+        this.animationId = requestAnimationFrame(animate);
+    }
+    
+    reveal() {
+        if (this.revealed || this.revealing) return;
+        
+        this.revealing = true;
+        
+        // Start reveal animation on all canvases
+        for (const canvas of this.canvases) {
+            canvas.startReveal();
         }
     }
-
-    // Remove only canvases for this component
-    const canvasIds = elementCanvasIdsMap.get(elementRef);
-    if (canvasIds) {
-        for (const id of canvasIds) {
-            const canvas = canvasMap.get(id);
-            if (canvas) {
-                // Check if canvas is still in DOM before removing
-                if (canvas.parentNode) {
-                    try {
-                        canvas.parentNode.removeChild(canvas);
-                    } catch (e) {
-                        // Canvas may have already been removed, ignore
-                    }
-                }
-            }
-            canvasMap.delete(id);
-            contextMap.delete(id);
-            elementRefMap.delete(id);
-            // Clear fill color cache for this canvas
-            for (const key of fillColorCache.keys()) {
-                if (key.startsWith(id + ':')) {
-                    fillColorCache.delete(key);
-                }
+    
+    async completeReveal() {
+        this.animationId = null;
+        
+        // Clean up canvases
+        this.canvases.forEach(c => c.destroy());
+        this.canvases = [];
+        
+        // Notify Blazor that reveal animation is starting
+        if (this.dotNetRef) {
+            try {
+                await this.dotNetRef.invokeMethodAsync('OnRevealStart');
+            } catch (e) {
+                // Component may have been disposed
             }
         }
-        elementCanvasIdsMap.delete(elementRef);
+        
+        // Wait for text fade-in duration
+        await new Promise(resolve => setTimeout(resolve, this.config.revealDuration));
+        
+        this.revealed = true;
+        
+        // Notify Blazor that reveal is complete
+        if (this.dotNetRef) {
+            try {
+                await this.dotNetRef.invokeMethodAsync('OnRevealComplete');
+            } catch (e) {
+                // Component may have been disposed
+            }
+        }
+    }
+    
+    dispose() {
+        this.revealed = true; // Stop animation
+        
+        if (this.animationId !== null) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+        
+        if (this.resizeObserver) {
+            this.resizeObserver.disconnect();
+            this.resizeObserver = null;
+        }
+        
+        if (this.scrollHandler) {
+            window.removeEventListener('scroll', this.scrollHandler);
+            this.scrollHandler = null;
+        }
+        
+        this.canvases.forEach(c => c.destroy());
+        this.canvases = [];
+    }
+}
+
+// Public API functions called from Blazor
+
+export function initialize(element, config, dotNetRef) {
+    if (!element || instances.has(element)) return;
+    
+    const instance = new SpoilerInstance(element, {
+        scale: config.scale ?? 1,
+        minVelocity: config.minVelocity ?? 0.01,
+        maxVelocity: config.maxVelocity ?? 0.05,
+        particleLifetime: config.particleLifetime ?? 120,
+        density: config.density ?? 8,
+        revealDuration: config.revealDuration ?? 300,
+        textColor: '#000000'
+    }, dotNetRef);
+    
+    instances.set(element, instance);
+}
+
+export function reveal(element) {
+    const instance = instances.get(element);
+    if (instance) {
+        instance.reveal();
+    }
+}
+
+export function dispose(element) {
+    const instance = instances.get(element);
+    if (instance) {
+        instance.dispose();
+        instances.delete(element);
     }
 }

@@ -1,23 +1,30 @@
 .blazor-fast-spoiler {
     position: relative;
-    display: inline-block; /* Must be inline-block (not inline) to establish containing block for absolute positioned canvas */
+    display: inline-block;
     cursor: pointer;
     user-select: none;
-    overflow: visible; /* Allow particles to animate outside bounds */
-    isolation: isolate; /* Create new stacking context for canvas elements */
-    vertical-align: baseline; /* Maintain text flow alignment */
+    vertical-align: baseline;
 }
 
 .blazor-fast-spoiler.hidden {
     color: transparent !important;
     text-shadow: none;
-    /* Ensure text is completely hidden so particles are visible */
+}
+
+/* Ensure nested elements also have transparent text */
+.blazor-fast-spoiler.hidden * {
+    color: transparent !important;
+    text-shadow: none;
 }
 
 .blazor-fast-spoiler.revealing {
     cursor: pointer;
     user-select: none;
-    animation: fade-in-text var(--reveal-duration, 300ms) ease-out forwards;
+    animation: spoiler-fade-in var(--reveal-duration, 300ms) ease-out forwards;
+}
+
+.blazor-fast-spoiler.revealing * {
+    animation: spoiler-fade-in var(--reveal-duration, 300ms) ease-out forwards;
 }
 
 .blazor-fast-spoiler.revealed {
@@ -26,11 +33,11 @@
     user-select: text;
 }
 
-@keyframes fade-in-text {
-    from {
-        color: transparent;
-    }
-    to {
-        color: inherit;
-    }
+.blazor-fast-spoiler.revealed * {
+    color: inherit;
+}
+
+@keyframes spoiler-fade-in {
+    from { color: transparent; }
+    to { color: inherit; }
 }

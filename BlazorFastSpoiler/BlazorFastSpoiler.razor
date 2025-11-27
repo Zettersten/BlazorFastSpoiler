@@ -19,82 +19,35 @@
 @code {
     private ElementReference containerRef;
     private IJSObjectReference? jsModule;
-    private IJSInProcessObjectReference? jsInProcessModule;
     private DotNetObjectReference<BlazorFastSpoiler>? objRef;
     private bool isInitialized;
     private bool isDisposed;
-    private readonly Dictionary<string, ParticleManager> particleManagers = new();
-    private readonly Dictionary<string, BoundingBox> boundingBoxes = new();
-    private CancellationTokenSource? animationCts;
-    private Task? animationTask;
-    private string? textColor;
-    private bool isWasm;
-    private bool revealInitiated;
-    private bool isHandlingSizeChange;
-    
-    // Reusable buffers to avoid allocations
-    private readonly List<(string id, ParticleManager manager)> managersBuffer = new();
-    private readonly Dictionary<string, object[]> particleDataCache = new();
-    private readonly object particleManagersLock = new object();
 
-    /// <summary>
-    /// Child content to be displayed as spoiler text
-    /// </summary>
+    /// <summary>Child content to be displayed as spoiler text</summary>
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
-    /// <summary>
-    /// Scale factor for particle size (default: 1)
-    /// </summary>
+    /// <summary>Scale factor for particle size (default: 1)</summary>
     [Parameter] public double Scale { get; set; } = 1.0;
 
-    /// <summary>
-    /// Minimum velocity for particles in pixels per frame (default: 0.01)
-    /// </summary>
+    /// <summary>Minimum velocity for particles in pixels per frame (default: 0.01)</summary>
     [Parameter] public double MinVelocity { get; set; } = 0.01;
 
-    /// <summary>
-    /// Maximum velocity for particles in pixels per frame (default: 0.05)
-    /// </summary>
+    /// <summary>Maximum velocity for particles in pixels per frame (default: 0.05)</summary>
     [Parameter] public double MaxVelocity { get; set; } = 0.05;
 
-    /// <summary>
-    /// Particle lifetime in frames at 60fps (default: 120)
-    /// </summary>
+    /// <summary>Particle lifetime in frames at 60fps (default: 120)</summary>
     [Parameter] public int ParticleLifetime { get; set; } = 120;
 
-    /// <summary>
-    /// Target particle density (particles per 100 square pixels) (default: 8)
-    /// </summary>
+    /// <summary>Target particle density (particles per 100 square pixels) (default: 8)</summary>
     [Parameter] public double Density { get; set; } = 8.0;
 
-    /// <summary>
-    /// Text fade-in duration in milliseconds when revealing (default: 300)
-    /// </summary>
+    /// <summary>Text fade-in duration in milliseconds when revealing (default: 300)</summary>
     [Parameter] public int RevealDuration { get; set; } = 300;
 
-    /// <summary>
-    /// Delay in milliseconds before stopping particle spawning after click (default: 0)
-    /// </summary>
-    [Parameter] public int SpawnStopDelay { get; set; } = 0;
-
-    /// <summary>
-    /// Enable continuous position monitoring for hover effects and CSS transforms (default: false)
-    /// </summary>
-    [Parameter] public bool MonitorPosition { get; set; } = false;
-
-    /// <summary>
-    /// Target frames per second for particle animation (default: 60)
-    /// </summary>
-    [Parameter] public int Fps { get; set; } = 60;
-
-    /// <summary>
-    /// State to track if the spoiler is currently revealing (text fading in)
-    /// </summary>
+    /// <summary>State to track if the spoiler is currently revealing (text fading in)</summary>
     public bool Revealing { get; private set; }
 
-    /// <summary>
-    /// State to track if the spoiler has been fully revealed
-    /// </summary>
+    /// <summary>State to track if the spoiler has been fully revealed</summary>
     public bool Revealed { get; private set; }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -109,62 +62,29 @@
     {
         if (isInitialized || isDisposed) return;
 
-        // Check if we're in a browser environment (WASM or Server with SignalR)
-        if (!OperatingSystem.IsBrowser())
-        {
-            // Server-side rendering - skip JS initialization
-            return;
-        }
-
         try
         {
-            // Try to get in-process reference for WASM performance
-            if (JSRuntime is IJSInProcessRuntime inProcessRuntime)
-            {
-                jsInProcessModule = await inProcessRuntime.InvokeAsync<IJSInProcessObjectReference>(
-                    "import", "./_content/BlazorFastSpoiler/js/blazorFastSpoiler.js");
-                isWasm = true;
-            }
-            else
-            {
-                jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                    "import", "./_content/BlazorFastSpoiler/js/blazorFastSpoiler.js");
-                isWasm = false;
-            }
+            jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/BlazorFastSpoiler/js/blazorFastSpoiler.js");
 
             objRef = DotNetObjectReference.Create(this);
 
-            var config = new ParticleConfig(
-                Scale,
-                MinVelocity,
-                MaxVelocity,
-                ParticleLifetime,
-                Density,
-                "#000000" // Will be updated from computed style
-            );
+            var config = new
+            {
+                scale = Scale,
+                minVelocity = MinVelocity,
+                maxVelocity = MaxVelocity,
+                particleLifetime = ParticleLifetime,
+                density = Density,
+                revealDuration = RevealDuration
+            };
 
-            // Get bounding boxes and initialize particle managers in C#
-            await SetupParticleManagers(config);
-
-            // Render initial particles immediately before setting up resize handlers
-            // This ensures particles are visible before any resize events can interfere
-            await RenderParticlesAsync();
-
-            // Start animation loop before setting up resize handlers
-            StartAnimationLoop();
-
-            // Set up scroll/resize handlers for position updates
-            // This is done AFTER animation starts to prevent race conditions
-            await SetupScrollResizeHandlersAsync();
-            
-            // Now allow resize handling
-            allowResizeHandling = true;
-
+            await jsModule.InvokeVoidAsync("initialize", containerRef, config, objRef);
             isInitialized = true;
         }
         catch (JSException)
         {
-            // Silently fail if JS interop is not available (e.g., during SSR or tests)
+            // Silently fail if JS interop is not available (e.g., during SSR)
         }
         catch (JSDisconnectedException)
         {
@@ -172,534 +92,25 @@
         }
     }
 
-    private CancellationTokenSource? monitoringCts;
-    private bool allowResizeHandling = false; // Don't allow resize handling until initial setup is complete
-
-    private async Task SetupParticleManagers(ParticleConfig config)
-    {
-        if (jsInProcessModule is null && jsModule is null) return;
-
-        // Get text color from computed style
-        textColor = await GetTextColorAsync();
-
-        var updatedConfig = config with { TextColor = textColor ?? "#000000" };
-
-        // Get bounding boxes from JavaScript
-        var boxes = await GetBoundingBoxesAsync();
-        
-        foreach (var (id, box) in boxes)
-        {
-            // Skip invalid bounding boxes (zero or negative dimensions)
-            if (box.Width <= 0 || box.Height <= 0) continue;
-            
-            boundingBoxes[id] = box;
-            var manager = new ParticleManager(updatedConfig, box.Width, box.Height);
-            
-            lock (particleManagersLock)
-            {
-                particleManagers[id] = manager;
-            }
-
-            // Create canvas in JavaScript (outside lock since it's async)
-            if (isWasm && jsInProcessModule is not null)
-            {
-                jsInProcessModule.InvokeVoid("createCanvas", id, box.X, box.Y, box.Width, box.Height, containerRef);
-            }
-            else if (jsModule is not null)
-            {
-                await jsModule.InvokeVoidAsync("createCanvas", id, box.X, box.Y, box.Width, box.Height, containerRef);
-            }
-        }
-
-        // Set up continuous position monitoring if enabled (for transforms/animations)
-        if (MonitorPosition)
-        {
-            monitoringCts?.Cancel();
-            monitoringCts = new CancellationTokenSource();
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await MonitorPositionsAsync(monitoringCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected
-                }
-            });
-        }
-    }
-
-    private async Task SetupScrollResizeHandlersAsync()
-    {
-        if (jsInProcessModule is null && jsModule is null) return;
-
-        try
-        {
-            // Set up scroll/resize handlers in JavaScript
-            if (isWasm && jsInProcessModule is not null)
-            {
-                jsInProcessModule.InvokeVoid("setupScrollResizeHandlers", containerRef, objRef);
-            }
-            else if (jsModule is not null)
-            {
-                await jsModule.InvokeVoidAsync("setupScrollResizeHandlers", containerRef, objRef);
-            }
-        }
-        catch
-        {
-            // Fallback: handle in C# if JS interop fails
-        }
-    }
-
+    /// <summary>Called from JS when reveal animation starts (particles gone)</summary>
     [JSInvokable]
-    public async Task HandleSizeChange()
+    public async Task OnRevealStart()
     {
-        // Don't handle resize until initial setup is complete
-        if (!allowResizeHandling || Revealed || isDisposed || revealInitiated || isHandlingSizeChange) return;
-
-        isHandlingSizeChange = true;
+        if (isDisposed) return;
         
-        try
-        {
-            // Debounce size changes
-            await Task.Delay(50);
-            
-            if (isDisposed || Revealed || revealInitiated) return;
-
-            // Clean up old canvases and particle managers
-            lock (particleManagersLock)
-            {
-                particleManagers.Clear();
-            }
-            boundingBoxes.Clear();
-            particleDataCache.Clear(); // Clear cached particle data arrays
-            
-            if (isWasm && jsInProcessModule is not null)
-            {
-                jsInProcessModule.InvokeVoid("dispose", containerRef);
-            }
-            else if (jsModule is not null)
-            {
-                await jsModule.InvokeVoidAsync("dispose", containerRef);
-            }
-
-            var config = new ParticleConfig(
-                Scale,
-                MinVelocity,
-                MaxVelocity,
-                ParticleLifetime,
-                Density,
-                textColor ?? "#000000"
-            );
-
-            await SetupParticleManagers(config);
-            
-            // Restart animation loop if it was stopped
-            if (Revealed || isDisposed) return;
-            StartAnimationLoop();
-        }
-        finally
-        {
-            isHandlingSizeChange = false;
-        }
+        Revealing = true;
+        await InvokeAsync(StateHasChanged);
     }
 
-    private async Task MonitorPositionsAsync(CancellationToken cancellationToken)
+    /// <summary>Called from JS when reveal animation completes</summary>
+    [JSInvokable]
+    public async Task OnRevealComplete()
     {
-        while (!cancellationToken.IsCancellationRequested && !Revealed && !isDisposed)
-        {
-            try
-            {
-                await Task.Delay(16, cancellationToken); // ~60fps
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-
-            if (isDisposed || cancellationToken.IsCancellationRequested || Revealed) break;
-
-            try
-            {
-                var boxes = await GetBoundingBoxesAsync();
-                if (boxes.Count == 0) continue;
-                
-                foreach (var (id, newBox) in boxes)
-                {
-                    if (isDisposed || cancellationToken.IsCancellationRequested) break;
-                    
-                    if (boundingBoxes.TryGetValue(id, out var oldBox))
-                    {
-                        if (Math.Abs(newBox.X - oldBox.X) > 0.5 || 
-                            Math.Abs(newBox.Y - oldBox.Y) > 0.5 ||
-                            Math.Abs(newBox.Width - oldBox.Width) > 0.5 ||
-                            Math.Abs(newBox.Height - oldBox.Height) > 0.5)
-                        {
-                            boundingBoxes[id] = newBox;
-                            try
-                            {
-                                if (isWasm && jsInProcessModule is not null)
-                                {
-                                    jsInProcessModule.InvokeVoid("updateCanvasPosition", id, newBox.X, newBox.Y);
-                                }
-                                else if (jsModule is not null)
-                                {
-                                    await jsModule.InvokeVoidAsync("updateCanvasPosition", id, newBox.X, newBox.Y);
-                                }
-                            }
-                            catch (JSDisconnectedException)
-                            {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (JSDisconnectedException)
-            {
-                break;
-            }
-        }
-    }
-
-    private async Task<string?> GetTextColorAsync()
-    {
-        try
-        {
-            if (isWasm && jsInProcessModule is not null)
-            {
-                return jsInProcessModule.Invoke<string>("getTextColor", containerRef);
-            }
-            else if (jsModule is not null)
-            {
-                return await jsModule.InvokeAsync<string>("getTextColor", containerRef);
-            }
-        }
-        catch
-        {
-            // Fallback to default
-        }
-        return "#000000";
-    }
-
-    private async Task<Dictionary<string, BoundingBox>> GetBoundingBoxesAsync()
-    {
-        try
-        {
-            if (isWasm && jsInProcessModule is not null)
-            {
-                var result = jsInProcessModule.Invoke<Dictionary<string, BoundingBox>>("getBoundingBoxes", containerRef);
-                return result;
-            }
-            else if (jsModule is not null)
-            {
-                var result = await jsModule.InvokeAsync<Dictionary<string, BoundingBox>>("getBoundingBoxes", containerRef);
-                return result ?? new Dictionary<string, BoundingBox>();
-            }
-        }
-        catch
-        {
-            // Return empty on error
-        }
-        return new Dictionary<string, BoundingBox>();
-    }
-
-    private void StartAnimationLoop()
-    {
-        // Don't start if already revealed or disposed
-        if (Revealed || isDisposed) return;
+        if (isDisposed) return;
         
-        // Don't start if no particle managers
-        lock (particleManagersLock)
-        {
-            if (particleManagers.Count == 0) return;
-        }
-        
-        // Cancel previous animation loop
-        animationCts?.Cancel();
-        animationCts?.Dispose();
-        
-        // Wait for previous task to finish (with timeout to prevent hanging)
-        if (animationTask is not null && !animationTask.IsCompleted)
-        {
-            try
-            {
-                // Use a short timeout to prevent blocking
-                var completed = animationTask.Wait(100);
-                if (!completed)
-                {
-                    // Task didn't complete in time, but we'll continue anyway
-                    // The cancellation token should stop it eventually
-                }
-            }
-            catch
-            {
-                // Ignore errors - task may have already completed or faulted
-            }
-        }
-        
-        animationCts = new CancellationTokenSource();
-        var token = animationCts.Token;
-
-        animationTask = Task.Run(async () =>
-        {
-            try
-            {
-                await AnimateAsync(token);
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when cancelling
-            }
-            catch (JSDisconnectedException)
-            {
-                // Component disposed
-            }
-        }, token);
-    }
-
-    private async Task AnimateAsync(CancellationToken cancellationToken)
-    {
-        // Validate FPS to prevent division by zero or invalid values
-        var fps = Math.Max(1, Math.Min(120, Fps)); // Clamp between 1 and 120
-        var frameInterval = 1000.0 / fps;
-        var lastFrameTime = 0.0;
-        
-        // Reuse buffer for managers snapshot
-        var managersSnapshot = new List<ParticleManager>();
-
-        while (!cancellationToken.IsCancellationRequested && !Revealed && !isDisposed)
-        {
-            var currentTime = Environment.TickCount64;
-            var elapsed = currentTime - lastFrameTime;
-
-            if (elapsed < frameInterval)
-            {
-                var delayMs = (int)(frameInterval - elapsed);
-                if (delayMs > 0)
-                {
-                    try
-                    {
-                        await Task.Delay(delayMs, cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                }
-                continue;
-            }
-
-            lastFrameTime = currentTime - (elapsed % frameInterval);
-
-            // Update all particle managers in C#
-            // Reuse buffer instead of creating new list
-            // Thread-safe snapshot
-            lock (particleManagersLock)
-            {
-                managersSnapshot.Clear();
-                managersSnapshot.Capacity = Math.Max(managersSnapshot.Capacity, particleManagers.Count);
-                foreach (var manager in particleManagers.Values)
-                {
-                    if (isDisposed || cancellationToken.IsCancellationRequested) break;
-                    managersSnapshot.Add(manager);
-                }
-            }
-            
-            foreach (var manager in managersSnapshot)
-            {
-                if (isDisposed || cancellationToken.IsCancellationRequested) break;
-                manager.Update();
-            }
-
-            // Check if all particles are dead
-            var allDead = managersSnapshot.Count == 0 || managersSnapshot.All(m => !m.HasParticles());
-
-            // If reveal was initiated and all particles are gone, start text fade-in
-            if (revealInitiated && allDead && !Revealing && !Revealed)
-            {
-                // Small delay to ensure particles have fully animated away
-                try
-                {
-                    await Task.Delay(50, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                
-                if (isDisposed || cancellationToken.IsCancellationRequested) break;
-                
-                // Clean up canvases before starting text fade-in
-                try
-                {
-                    if (isWasm && jsInProcessModule is not null)
-                    {
-                        jsInProcessModule.InvokeVoid("dispose", containerRef);
-                    }
-                    else if (jsModule is not null)
-                    {
-                        await jsModule.InvokeVoidAsync("dispose", containerRef);
-                    }
-                }
-                catch (JSDisconnectedException)
-                {
-                    // Component disposed
-                    break;
-                }
-                
-                Revealing = true;
-                revealInitiated = false; // Clear flag immediately to prevent duplicate processing
-                await InvokeAsync(StateHasChanged);
-                
-                // Wait for reveal animation duration before marking as revealed
-                try
-                {
-                    await Task.Delay(RevealDuration, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                
-                if (isDisposed || cancellationToken.IsCancellationRequested) break;
-                
-                Revealed = true;
-                Revealing = false;
-                
-                await InvokeAsync(StateHasChanged);
-                break;
-            }
-            
-            // If reveal was initiated but particles were already dead (edge case)
-            if (revealInitiated && allDead && managersSnapshot.Count == 0 && !Revealing && !Revealed)
-            {
-                // No particles to animate, clean up canvases and go straight to reveal
-                try
-                {
-                    if (isWasm && jsInProcessModule is not null)
-                    {
-                        jsInProcessModule.InvokeVoid("dispose", containerRef);
-                    }
-                    else if (jsModule is not null)
-                    {
-                        await jsModule.InvokeVoidAsync("dispose", containerRef);
-                    }
-                }
-                catch (JSDisconnectedException)
-                {
-                    break;
-                }
-                
-                Revealing = true;
-                revealInitiated = false;
-                await InvokeAsync(StateHasChanged);
-                
-                try
-                {
-                    await Task.Delay(RevealDuration, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                
-                if (isDisposed || cancellationToken.IsCancellationRequested) break;
-                
-                Revealed = true;
-                Revealing = false;
-                
-                await InvokeAsync(StateHasChanged);
-                break;
-            }
-
-            // Render particles to canvas via JavaScript
-            if (!cancellationToken.IsCancellationRequested && !isDisposed && !Revealed)
-            {
-                await RenderParticlesAsync();
-            }
-        }
-    }
-
-    private async Task RenderParticlesAsync()
-    {
-        if (Revealed || isDisposed) return;
-        
-        lock (particleManagersLock)
-        {
-            if (particleManagers.Count == 0) return;
-        }
-
-        try
-        {
-            // Reuse buffer instead of creating new list
-            // Thread-safe snapshot
-            lock (particleManagersLock)
-            {
-                managersBuffer.Clear();
-                managersBuffer.Capacity = Math.Max(managersBuffer.Capacity, particleManagers.Count);
-                foreach (var kvp in particleManagers)
-                {
-                    managersBuffer.Add((kvp.Key, kvp.Value));
-                }
-            }
-            
-            foreach (var (id, manager) in managersBuffer)
-            {
-                if (isDisposed || Revealed) return; // Check again inside loop
-                
-                var particles = manager.GetParticles();
-                if (particles.Count == 0) continue;
-
-                // Reuse cached array or create new one if needed
-                if (!particleDataCache.TryGetValue(id, out var particleData) || particleData.Length < particles.Count)
-                {
-                    particleData = new object[particles.Count];
-                    particleDataCache[id] = particleData;
-                }
-                
-                // Note: We reuse the array even if it's larger than needed
-                // This avoids allocations but means we need to track actual count
-
-                // Reuse existing objects in array where possible
-                for (var i = 0; i < particles.Count; i++)
-                {
-                    var p = particles[i];
-                    // Create new anonymous object (unavoidable for JS interop)
-                    particleData[i] = new
-                    {
-                        x = p.X,
-                        y = p.Y,
-                        width = p.Width,
-                        height = p.Height,
-                        alpha = p.Alpha
-                    };
-                }
-
-                if (isWasm && jsInProcessModule is not null)
-                {
-                    jsInProcessModule.InvokeVoid("drawParticles", id, particleData, textColor ?? "#000000");
-                }
-                else if (jsModule is not null)
-                {
-                    await jsModule.InvokeVoidAsync("drawParticles", id, particleData, textColor ?? "#000000");
-                }
-            }
-        }
-        catch (JSDisconnectedException)
-        {
-            // Component disposed, stop animation
-            Revealed = true;
-        }
-        catch (OperationCanceledException)
-        {
-            // Animation cancelled, expected
-        }
+        Revealed = true;
+        Revealing = false;
+        await InvokeAsync(StateHasChanged);
     }
 
     private string GetCssClass() => Revealed switch
@@ -715,22 +126,16 @@
 
     private async Task HandleClick()
     {
-        if (Revealed || Revealing || revealInitiated || isDisposed) return;
+        if (Revealed || Revealing || isDisposed || jsModule is null) return;
 
-        revealInitiated = true;
-
-        // Start reveal animation - particles will animate outward
-        // Thread-safe iteration
-        lock (particleManagersLock)
+        try
         {
-            foreach (var manager in particleManagers.Values)
-            {
-                manager.StartReveal();
-            }
+            await jsModule.InvokeVoidAsync("reveal", containerRef);
         }
-        
-        // Trigger state change to update UI immediately
-        await InvokeAsync(StateHasChanged);
+        catch (JSDisconnectedException)
+        {
+            // Component disposed
+        }
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -745,47 +150,6 @@
     {
         if (isDisposed) return;
         isDisposed = true;
-
-        animationCts?.Cancel();
-        if (animationTask is not null && !animationTask.IsCompleted)
-        {
-            try
-            {
-                // Wait with timeout to prevent hanging
-                var completed = await Task.WhenAny(animationTask, Task.Delay(500));
-                if (completed != animationTask)
-                {
-                    // Task didn't complete in time, but cancellation token should stop it
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when cancelling
-            }
-        }
-        animationCts?.Dispose();
-        animationTask = null;
-        
-        monitoringCts?.Cancel();
-        monitoringCts?.Dispose();
-        monitoringCts = null;
-        
-        // Clear caches
-        particleDataCache.Clear();
-        managersBuffer.Clear();
-
-        if (jsInProcessModule is not null)
-        {
-            try
-            {
-                jsInProcessModule.InvokeVoid("dispose", containerRef);
-                jsInProcessModule.Dispose();
-            }
-            catch (JSDisconnectedException)
-            {
-                // Ignore if JS context is disconnected
-            }
-        }
 
         if (jsModule is not null)
         {
