@@ -28,7 +28,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Full history for MinVer versioning
+        fetch-depth: 0
         
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -81,7 +81,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Full history for MinVer versioning
+        fetch-depth: 0
         
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -103,7 +103,6 @@ jobs:
           -p:IncludeSymbols=true \
           -p:SymbolPackageFormat=snupkg
         
-        # MinVer automatically calculates version during pack
         # Extract version from generated package filename
         PACKAGE=$(ls ./artifacts/*.nupkg | grep -v symbols | head -n 1)
         VERSION=$(basename "$PACKAGE" | sed -E 's/BlazorFastSpoiler\.(.*)\.nupkg/\1/')

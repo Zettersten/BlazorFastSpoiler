@@ -1,10 +1,6 @@
-using Bunit;
-using Xunit;
-using BlazorFastSpoiler.Components;
-
 namespace BlazorFastSpoiler.Tests;
 
-public class BlazorFastSpoilerTests : TestContext
+public class BlazorFastSpoilerTests : BunitContext
 {
     private void SetupJSInterop()
     {
@@ -18,7 +14,7 @@ public class BlazorFastSpoilerTests : TestContext
     public void Renders_ChildContent()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>(parameters => parameters
+        var cut = Render<Components.BlazorFastSpoiler>(parameters => parameters
             .Add(p => p.ChildContent, "Spoiler text"));
 
         Assert.Contains("Spoiler text", cut.Markup);
@@ -28,7 +24,7 @@ public class BlazorFastSpoilerTests : TestContext
     public void Has_Correct_Default_Parameters()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
 
         var component = cut.Instance;
         Assert.Equal(1.0, component.Scale);
@@ -45,7 +41,7 @@ public class BlazorFastSpoilerTests : TestContext
     public void Sets_Custom_Parameters()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>(parameters => parameters
+        var cut = Render<Components.BlazorFastSpoiler>(parameters => parameters
             .Add(p => p.Scale, 2.0)
             .Add(p => p.MinVelocity, 0.02)
             .Add(p => p.MaxVelocity, 0.1)
@@ -66,7 +62,7 @@ public class BlazorFastSpoilerTests : TestContext
     public void Has_Hidden_Class_Initially()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
 
         var div = cut.Find("div");
         Assert.Contains("hidden", div.ClassName);
@@ -76,7 +72,7 @@ public class BlazorFastSpoilerTests : TestContext
     public void Has_Correct_Aria_Attributes()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
 
         var div = cut.Find("div");
         Assert.Equal("button", div.GetAttribute("role"));
@@ -90,7 +86,7 @@ public class BlazorFastSpoilerTests : TestContext
     public void Click_Calls_JS_Reveal()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>(parameters => parameters
+        var cut = Render<Components.BlazorFastSpoiler>(parameters => parameters
             .Add(p => p.RevealDuration, 500));
 
         var div = cut.Find("div");
@@ -105,7 +101,7 @@ public class BlazorFastSpoilerTests : TestContext
     public async Task OnRevealStart_Sets_Revealing_State()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
         
         // Simulate JS calling OnRevealStart
         await cut.Instance.OnRevealStart();
@@ -118,7 +114,7 @@ public class BlazorFastSpoilerTests : TestContext
     public async Task OnRevealComplete_Sets_Revealed_State()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
         
         // Simulate JS calling OnRevealComplete
         await cut.Instance.OnRevealComplete();
@@ -131,7 +127,7 @@ public class BlazorFastSpoilerTests : TestContext
     public void Component_Implements_AsyncDisposable()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
 
         Assert.IsAssignableFrom<IAsyncDisposable>(cut.Instance);
     }
@@ -140,7 +136,7 @@ public class BlazorFastSpoilerTests : TestContext
     public async Task Revealed_State_Updates_CSS_Class()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
 
         // Initially hidden
         var div = cut.Find("div");
@@ -159,7 +155,7 @@ public class BlazorFastSpoilerTests : TestContext
     public async Task Revealing_State_Updates_CSS_Class()
     {
         SetupJSInterop();
-        var cut = RenderComponent<Components.BlazorFastSpoiler>();
+        var cut = Render<Components.BlazorFastSpoiler>();
 
         // Trigger revealing state
         await cut.Instance.OnRevealStart();
