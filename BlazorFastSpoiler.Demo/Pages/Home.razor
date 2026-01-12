@@ -1,6 +1,5 @@
 @page "/"
 @inject IJSRuntime JSRuntime
-@using Microsoft.JSInterop
 
 <PageTitle>BlazorFastSpoiler - Beautiful Particle Effects for Spoiler Text</PageTitle>
 
@@ -297,11 +296,9 @@ dotnet add package BlazorFastSpoiler</code></pre>
     {
         if (firstRender)
         {
-            // Re-run Prism highlighting after Blazor renders
-            await Task.Delay(200);
             try
             {
-                await JSRuntime.InvokeVoidAsync("eval", "if (window.Prism) Prism.highlightAll();");
+                await JSRuntime.InvokeVoidAsync("BlazorFastSpoilerDemo.highlightAll");
             }
             catch
             {

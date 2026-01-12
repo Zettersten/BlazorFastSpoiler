@@ -2,6 +2,7 @@
 // Uses requestAnimationFrame for smooth 60fps animations with minimal C# interop
 
 const instances = new WeakMap();
+const PARTICLE_SIZES = [[1, 1], [1, 2], [2, 1], [2, 2]];
 
 class Particle {
     constructor(x, y, vx, vy, width, height, life, maxLife, maxAlpha) {
@@ -71,8 +72,7 @@ class ParticleCanvas {
     
     createParticle() {
         const { width, height } = this.box;
-        const sizes = [[1, 1], [1, 2], [2, 1], [2, 2]];
-        const [sw, sh] = sizes[Math.floor(Math.random() * sizes.length)];
+        const [sw, sh] = PARTICLE_SIZES[Math.floor(Math.random() * PARTICLE_SIZES.length)];
         const scale = this.config.scale;
         const pWidth = sw * scale;
         const pHeight = sh * scale;
@@ -144,7 +144,12 @@ class ParticleCanvas {
             // Remove dead or out-of-bounds particles
             const margin = Math.max(width, height) * 0.5;
             if (p.life <= 0 || p.x < -margin || p.x > width + margin || p.y < -margin || p.y > height + margin) {
-                this.particles.splice(i, 1);
+                // Swap-remove to avoid O(n) splice cost.
+                const last = this.particles.length - 1;
+                if (i !== last) {
+                    this.particles[i] = this.particles[last];
+                }
+                this.particles.pop();
             }
         }
         
@@ -218,6 +223,8 @@ class SpoilerInstance {
         this.revealed = false;
         this.revealing = false;
         this.resizeObserver = null;
+        this.resizeDebounceTimer = null;
+        this.range = document.createRange();
         
         this.init();
     }
@@ -260,7 +267,6 @@ class SpoilerInstance {
         this.canvases = [];
         
         const containerRect = this.element.getBoundingClientRect();
-        const range = document.createRange();
         
         for (const node of this.element.childNodes) {
             // Skip existing canvas elements
@@ -268,8 +274,8 @@ class SpoilerInstance {
             
             let rects;
             if (node.nodeType === Node.TEXT_NODE) {
-                range.selectNodeContents(node);
-                rects = range.getClientRects();
+                this.range.selectNodeContents(node);
+                rects = this.range.getClientRects();
             } else if (node.nodeType === Node.ELEMENT_NODE) {
                 rects = node.getClientRects();
             } else {
@@ -295,7 +301,6 @@ class SpoilerInstance {
     setupResizeObserver() {
         let lastWidth = this.element.offsetWidth;
         let lastHeight = this.element.offsetHeight;
-        let debounceTimer = null;
         
         this.resizeObserver = new ResizeObserver(entries => {
             if (this.revealed || this.revealing) return;
@@ -308,8 +313,8 @@ class SpoilerInstance {
                 lastHeight = height;
                 
                 // Debounce recreation
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => {
+                clearTimeout(this.resizeDebounceTimer);
+                this.resizeDebounceTimer = setTimeout(() => {
                     if (!this.revealed && !this.revealing) {
                         this.createCanvases();
                     }
@@ -330,7 +335,6 @@ class SpoilerInstance {
     
     updateCanvasPositions() {
         const containerRect = this.element.getBoundingClientRect();
-        const range = document.createRange();
         let canvasIndex = 0;
         
         for (const node of this.element.childNodes) {
@@ -338,8 +342,8 @@ class SpoilerInstance {
             
             let rects;
             if (node.nodeType === Node.TEXT_NODE) {
-                range.selectNodeContents(node);
-                rects = range.getClientRects();
+                this.range.selectNodeContents(node);
+                rects = this.range.getClientRects();
             } else if (node.nodeType === Node.ELEMENT_NODE) {
                 rects = node.getClientRects();
             } else {
@@ -430,6 +434,11 @@ class SpoilerInstance {
     
     dispose() {
         this.revealed = true; // Stop animation
+        
+        if (this.resizeDebounceTimer) {
+            clearTimeout(this.resizeDebounceTimer);
+            this.resizeDebounceTimer = null;
+        }
         
         if (this.animationId !== null) {
             cancelAnimationFrame(this.animationId);

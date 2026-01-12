@@ -31,6 +31,9 @@ jobs:
       
       - name: Build
         run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test BlazorFastSpoiler.Tests/BlazorFastSpoiler.Tests.csproj --configuration Release --no-build
       
       - name: Publish Blazor WebAssembly
         run: dotnet publish BlazorFastSpoiler.Demo/BlazorFastSpoiler.Demo.csproj --configuration Release --output ./publish -p:BaseHref="/BlazorFastSpoiler/"
